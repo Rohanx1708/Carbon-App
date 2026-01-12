@@ -178,7 +178,7 @@ class _MonthCalendarWidgetState extends State<MonthCalendarWidget> {
           formatButtonVisible: false,
           titleCentered: true,
           titleTextStyle: const TextStyle(
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: FontWeight.bold,
             color: Colors.black87,
           ),

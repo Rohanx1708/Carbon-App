@@ -200,7 +200,7 @@ class LeaveCardCompact extends StatelessWidget {
                               Text(
                                 datePrimary,
                                 style: TextStyle(
-                                  fontSize: 20,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w800,
                                   color: Colors.grey.shade900,
                                 ),
@@ -209,7 +209,7 @@ class LeaveCardCompact extends StatelessWidget {
                               Text(
                                 leave.type == 'casual' ? 'Casual' : (leave.type == 'sick' ? 'Sick' : titleLabel),
                                 style: TextStyle(
-                                  fontSize: 14  ,
+                                  fontSize: 12  ,
                                   fontWeight: FontWeight.w700,
                                   color: AppTheme.accentOrange,
                                 ),
@@ -305,7 +305,7 @@ class _StepperRow extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
             color: active ? Colors.grey.shade800 : Colors.grey.shade600,
           ),
@@ -403,7 +403,7 @@ class DonutStat extends StatelessWidget {
                     : Text(
                         display,
                         style: TextStyle(
-                          fontSize: 20,
+                          fontSize: 16,
                           fontWeight: FontWeight.w800,
                           color: Colors.grey.shade800,
                         ),
@@ -417,7 +417,7 @@ class DonutStat extends StatelessWidget {
         Text(
           title,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: FontWeight.w700,
             color: Colors.grey.shade800,
           ),

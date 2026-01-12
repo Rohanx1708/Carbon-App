@@ -4,6 +4,7 @@ import 'package:attendance/core/widgets/app_topbar.dart';
 import 'package:attendance/features/attendance/presentation/app_drawer.dart';
 import 'package:attendance/features/employee/presentation/employee_details_screen.dart';
 import 'package:attendance/features/employee/presentation/employee_form_screen.dart';
+import 'package:attendance/features/employee/widgets/employee_tile.dart';
 
 class EmployeeScreen extends StatefulWidget {
   const EmployeeScreen({super.key});
@@ -129,12 +130,12 @@ class _EmployeeScreenState extends State<EmployeeScreen> with SingleTickerProvid
               // Header
               Row(
                 children: [
-                  Icon(Icons.people_outline, color: AppTheme.primaryBlue, size: 24),
+                  Icon(Icons.people_outline, color: AppTheme.primaryBlue, size: 20),
                   const SizedBox(width: 8),
                   Text(
                     'Team Members',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.w700,
                       color: Colors.grey.shade900,
                     ),
@@ -149,7 +150,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> with SingleTickerProvid
                     child: Text(
                       '${filtered.length} employees',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: AppTheme.primaryBlue,
                       ),
@@ -187,8 +188,7 @@ class _EmployeeScreenState extends State<EmployeeScreen> with SingleTickerProvid
                                 ),
                               );
                             },
-                            child: _EmployeeCard(
-                              employee: emp,
+                            child: EmployeeTile(
                               name: name,
                               title: title,
                               phone: phone,

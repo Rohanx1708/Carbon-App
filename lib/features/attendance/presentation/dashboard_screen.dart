@@ -80,6 +80,8 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<AttendanceProvider>();
+    final now = DateTime.now();
+
     return Scaffold(
       drawer: const AppDrawer(),
       appBar: const GradientAppBar(title: 'Dashboard'),
@@ -91,67 +93,57 @@ class _DashboardScreenState extends State<DashboardScreen>
             opacity: _pageFade ?? const AlwaysStoppedAnimation(1.0),
             child: SlideTransition(
               position: _pageSlide ?? const AlwaysStoppedAnimation(Offset.zero),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _HeaderCard(
-                    loading: vm.loading,
-                    onPunchIn: () => _punch('in'),
-                    onPunchOut: () => _punch('out'),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.history,
-                        color: AppTheme.primaryBlue,
-                        size: 24,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Attendance History',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.grey.shade900,
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _HeroCard(
+                          loading: vm.loading,
+                          dateText: _formatDate(now),
+                          subtitleText: _greeting(now),
+                          onPunchIn: () => _punch('in'),
+                          onPunchOut: () => _punch('out'),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 22),
+                        _SectionHeader(
+                          title: 'Attendance History',
+                          icon: Icons.history,
+                          badgeText: '${vm.records.length}',
+                        ),
+                        const SizedBox(height: 12),
+                        if (vm.records.isEmpty) const _EmptyState(),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: vm.records.isEmpty
-                        ? const _EmptyState()
-                        : ListView.separated(
-                            itemCount: vm.records.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 12),
-                            itemBuilder: (context, index) {
-                              final r = vm.records[index];
-                              return TweenAnimationBuilder<double>(
-                                tween: Tween(begin: 0, end: 1),
-                                duration: Duration(
-                                  milliseconds: 250 + (index % 12) * 30,
-                                ),
-                                curve: Curves.easeOut,
-                                builder: (context, value, child) {
-                                  return Opacity(
-                                    opacity: value,
-                                    child: Transform.translate(
-                                      offset: Offset(0, (1 - value) * 12),
-                                      child: child,
-                                    ),
-                                  );
-                                },
-                                child: _AttendanceCard(
-                                  record: r,
-                                  formatDate: _formatDate,
-                                  formatTime: _formatTime,
-                                ),
-                              );
-                            },
+                  if (vm.records.isNotEmpty)
+                    SliverList.separated(
+                      itemCount: vm.records.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final r = vm.records[index];
+                        return TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: Duration(milliseconds: 250 + (index % 12) * 30),
+                          curve: Curves.easeOut,
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 12),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _AttendanceCard(
+                            record: r,
+                            formatDate: _formatDate,
+                            formatTime: _formatTime,
                           ),
-                  ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
@@ -160,15 +152,26 @@ class _DashboardScreenState extends State<DashboardScreen>
       ),
     );
   }
+
+  String _greeting(DateTime now) {
+    final hour = now.hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
 }
 
-class _HeaderCard extends StatelessWidget {
+class _HeroCard extends StatelessWidget {
   final bool loading;
+  final String dateText;
+  final String subtitleText;
   final VoidCallback onPunchIn;
   final VoidCallback onPunchOut;
 
-  const _HeaderCard({
+  const _HeroCard({
     required this.loading,
+    required this.dateText,
+    required this.subtitleText,
     required this.onPunchIn,
     required this.onPunchOut,
   });
@@ -196,41 +199,41 @@ class _HeaderCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Text(
+              subtitleText,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.white.withOpacity(0.9),
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.access_time,
-                    color: Colors.white,
-                    size: 24,
+                Expanded(
+                  child: Text(
+                    'Attendance',
+                    style: const TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 0.2,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
                     children: [
-                      const Text(
-                        'Attendance',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
+                      const Icon(Icons.calendar_month_outlined, size: 16, color: Colors.white),
+                      const SizedBox(width: 6),
                       Text(
-                        'Track your daily attendance',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.9),
-                          fontWeight: FontWeight.w500,
-                        ),
+                        dateText,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                       ),
                     ],
                   ),
@@ -279,6 +282,53 @@ class _HeaderCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String? badgeText;
+
+  const _SectionHeader({
+    required this.title,
+    required this.icon,
+    this.badgeText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppTheme.primaryBlue, size: 20),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade900,
+          ),
+        ),
+        const Spacer(),
+        if (badgeText != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              badgeText!,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.primaryBlue,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

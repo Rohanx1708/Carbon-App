@@ -45,6 +45,8 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
+      hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+      labelStyle: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
       prefixIcon: prefixIcon,
       suffixIcon: suffixIcon,
       filled: true,
@@ -80,7 +82,7 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
         const SizedBox(width: 10),
         Text(
           text,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.grey.shade900),
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.grey.shade900),
         ),
       ],
     );
@@ -178,12 +180,12 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
                     children: [
                       Text(
                         'Request leave',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.grey.shade900),
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.grey.shade900),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         'Fill the details below to submit a leave request.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.3),
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
                       ),
                       const SizedBox(height: 16),
                       _sectionTitle('Type & Mode', Icons.tune),
@@ -203,7 +205,7 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
                       const SizedBox(height: 12),
                       Text(
                         'Leave Mode',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -371,7 +373,7 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
                                       Text(
                                         _attachment?.name ?? 'Upload a file',
                                         style: TextStyle(
-                                          fontSize: 14,
+                                          fontSize: 12,
                                           fontWeight: FontWeight.w700,
                                           color: Colors.grey.shade800,
                                         ),
@@ -381,7 +383,7 @@ class _LeaveFormScreenState extends State<LeaveFormScreen> {
                                         _type == 'sick'
                                             ? 'Required for sick leave'
                                             : 'Optional',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                                        style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
                                       ),
                                     ],
                                   ),

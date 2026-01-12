@@ -77,6 +77,8 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
+      hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+      labelStyle: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
       prefixIcon: prefixIcon,
       suffixIcon: suffixIcon,
       filled: true,

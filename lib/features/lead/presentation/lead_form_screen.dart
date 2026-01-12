@@ -88,6 +88,8 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
+      hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+      labelStyle: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
       prefixIcon: prefixIcon,
       filled: true,
       fillColor: Colors.grey.shade50,
