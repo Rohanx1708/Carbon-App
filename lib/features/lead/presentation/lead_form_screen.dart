@@ -8,7 +8,9 @@ import 'package:attendance/features/lead/data/lead_service.dart';
 import 'package:attendance/state/lead_provider.dart';
 
 class LeadFormScreen extends StatefulWidget {
-  const LeadFormScreen({super.key});
+  final Lead? initialLead;
+
+  const LeadFormScreen({super.key, this.initialLead});
 
   @override
   State<LeadFormScreen> createState() => _LeadFormScreenState();
@@ -29,6 +31,31 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
 
   String _status = 'Cold';
   bool _submitting = false;
+
+  bool get _isEdit => widget.initialLead != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final l = widget.initialLead;
+    if (l != null) {
+      _clientCompanyC.text = l.clientCompany;
+      _companyEmailC.text = l.companyEmail;
+      _companyPhoneC.text = l.companyPhone;
+      _pocDesignationC.text = l.pocDesignation;
+      _pocPhoneC.text = l.pocPhone;
+      _industryC.text = l.industry;
+      _requirementsC.text = l.requirements;
+
+      final s = l.status.trim();
+      if (s.isNotEmpty) {
+        final normalized = '${s[0].toUpperCase()}${s.substring(1).toLowerCase()}';
+        if (normalized == 'Cold' || normalized == 'Warm' || normalized == 'Hot') {
+          _status = normalized;
+        }
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -53,6 +80,7 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
 
     try {
       final lead = Lead(
+        id: widget.initialLead?.id,
         clientCompany: _clientCompanyC.text.trim(),
         companyEmail: _companyEmailC.text.trim(),
         companyPhone: _companyPhoneC.text.trim(),
@@ -61,16 +89,16 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
         status: _status,
         industry: _industryC.text.trim(),
         requirements: _requirementsC.text.trim(),
-        createdAt: DateTime.now(),
+        createdAt: widget.initialLead?.createdAt ?? DateTime.now(),
       );
 
-      final ok = await provider.add(lead);
+      final ok = _isEdit ? await provider.update(lead) : await provider.add(lead);
       if (!ok) {
         throw provider.error ?? Exception('Failed');
       }
 
       messenger.showSnackBar(
-        const SnackBar(content: Text('Lead saved'), backgroundColor: Colors.green),
+        SnackBar(content: Text(_isEdit ? 'Lead updated' : 'Lead saved'), backgroundColor: Colors.green),
       );
       navigator.pop(true);
     } catch (e) {
@@ -154,7 +182,7 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const GradientAppBar(title: 'New Lead', showBack: true, showProfileAction: false),
+      appBar: GradientAppBar(title: _isEdit ? 'Edit Lead' : 'New Lead', showBack: true, showProfileAction: false),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -168,7 +196,7 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Create a new lead',
+                        _isEdit ? 'Edit lead' : 'Create a new lead',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.grey.shade900),
                       ),
                       const SizedBox(height: 6),
@@ -387,7 +415,7 @@ class _LeadFormScreenState extends State<LeadFormScreen> {
                             const Icon(Icons.save, color: Colors.white),
                           const SizedBox(width: 10),
                           Text(
-                            _submitting ? 'Saving...' : 'Save Lead',
+                            _submitting ? (_isEdit ? 'Updating...' : 'Saving...') : (_isEdit ? 'Update Lead' : 'Save Lead'),
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
                           ),
                         ],

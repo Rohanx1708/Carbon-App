@@ -21,7 +21,7 @@ class MeetingProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      _meetings = await _service.all();
+      _meetings = await _service.fetchAllRemote();
     } catch (e) {
       _error = e;
     } finally {
@@ -36,6 +36,38 @@ class MeetingProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _service.add(meeting);
+      await load();
+      return true;
+    } catch (e) {
+      _error = e;
+      _loading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> update(Meeting meeting) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await _service.update(meeting);
+      await load();
+      return true;
+    } catch (e) {
+      _error = e;
+      _loading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteById(int meetingId) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await _service.deleteById(meetingId);
       await load();
       return true;
     } catch (e) {

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:attendance/app/main_nav_screen.dart';
 import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/features/auth/presentation/auth_gate.dart';
 import 'package:attendance/features/auth/presentation/login_screen.dart';
 import 'package:attendance/features/employee/presentation/profile_screen.dart';
 import 'package:attendance/state/attendance_provider.dart';
@@ -34,7 +35,7 @@ class MyApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system,
-        home: const LoginScreen(),
+        home: const AuthGate(),
         routes: {
           '/main': (context) => const MainNavScreen(),
           '/profile': (context) => const ProfileScreen(),

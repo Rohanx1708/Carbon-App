@@ -26,6 +26,15 @@ class _MeetingScreenState extends State<MeetingScreen> {
   static const double _hourHeight = 64;
   static const double _timeLabelWidth = 54;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<MeetingProvider>().load();
+    });
+  }
+
   DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   String _typeLabel(String type) {
@@ -61,10 +70,14 @@ class _MeetingScreenState extends State<MeetingScreen> {
     return '${DateFormat('h:mm a').format(m.startDateTime)} - ${DateFormat('h:mm a').format(m.endDateTime)}';
   }
 
-  void _openMeeting(Meeting meeting) {
-    Navigator.of(context).push(
+  Future<void> _openMeeting(Meeting meeting) async {
+    final updated = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => MeetingDetailScreen(meeting: meeting)),
     );
+    if (updated == true) {
+      if (!mounted) return;
+      await context.read<MeetingProvider>().load();
+    }
   }
 
   Widget _meetingBlock(BuildContext context, Meeting m) {
@@ -268,6 +281,7 @@ class _MeetingScreenState extends State<MeetingScreen> {
     final weekStart = _startOfWeek(_selectedDay);
     final meetings = _meetingsForWeek(all, _selectedDay);
     final surface = Theme.of(context).colorScheme.surface;
+    final weekEnd = weekStart.add(const Duration(days: 6));
 
     return Container(
       decoration: BoxDecoration(
@@ -279,6 +293,44 @@ class _MeetingScreenState extends State<MeetingScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      setState(() {
+                        _selectedDay = _selectedDay.subtract(const Duration(days: 7));
+                        _focusedDay = _selectedDay;
+                      });
+                    },
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        '${DateFormat('d MMM').format(weekStart)} - ${DateFormat('d MMM').format(weekEnd)}',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.grey.shade900),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      setState(() {
+                        _selectedDay = _selectedDay.add(const Duration(days: 7));
+                        _focusedDay = _selectedDay;
+                      });
+                    },
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
+              ),
+            ),
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(

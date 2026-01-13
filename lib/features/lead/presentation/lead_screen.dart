@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,32 +19,89 @@ class LeadScreen extends StatefulWidget {
 
 class _LeadScreenState extends State<LeadScreen> {
   final _searchC = TextEditingController();
+  Timer? _debounce;
+  String? _selectedStatus;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<LeadProvider>().load();
+      context.read<LeadProvider>().load(status: _selectedStatus, search: _searchC.text);
     });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchC.dispose();
     super.dispose();
   }
 
-  List<dynamic> _filtered(List<dynamic> leads) {
-    final q = _searchC.text.trim().toLowerCase();
-    if (q.isEmpty) return leads;
-    return leads.where((l) {
-      final client = (l.clientCompany as String).toLowerCase();
-      final email = (l.companyEmail as String).toLowerCase();
-      final phone = (l.companyPhone as String).toLowerCase();
-      final industry = (l.industry as String).toLowerCase();
-      final status = (l.status as String).toLowerCase();
-      return client.contains(q) || email.contains(q) || phone.contains(q) || industry.contains(q) || status.contains(q);
-    }).toList();
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      context.read<LeadProvider>().load(status: _selectedStatus, search: _searchC.text);
+    });
+  }
+
+  Future<void> _openFilterDialog() async {
+    final selected = await showDialog<String?>(
+      context: context,
+      builder: (context) {
+        String? temp = _selectedStatus;
+        return AlertDialog(
+          title: const Text('Filter by status'),
+          content: StatefulBuilder(
+            builder: (context, setLocalState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<String?>(
+                    title: const Text('All'),
+                    value: null,
+                    groupValue: temp,
+                    onChanged: (v) => setLocalState(() => temp = v),
+                  ),
+                  RadioListTile<String?>(
+                    title: const Text('Hot'),
+                    value: 'hot',
+                    groupValue: temp,
+                    onChanged: (v) => setLocalState(() => temp = v),
+                  ),
+                  RadioListTile<String?>(
+                    title: const Text('Warm'),
+                    value: 'warm',
+                    groupValue: temp,
+                    onChanged: (v) => setLocalState(() => temp = v),
+                  ),
+                  RadioListTile<String?>(
+                    title: const Text('Cold'),
+                    value: 'cold',
+                    groupValue: temp,
+                    onChanged: (v) => setLocalState(() => temp = v),
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(_selectedStatus),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(temp),
+              child: const Text('Apply'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _selectedStatus = selected);
+    context.read<LeadProvider>().load(status: _selectedStatus, search: _searchC.text);
   }
 
   Color _statusColor(String status) {
@@ -62,14 +121,14 @@ class _LeadScreenState extends State<LeadScreen> {
     );
     if (created == true) {
       if (!mounted) return;
-      await context.read<LeadProvider>().load();
+      await context.read<LeadProvider>().load(status: _selectedStatus, search: _searchC.text);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<LeadProvider>();
-    final list = _filtered(vm.leads);
+    final list = vm.leads;
 
     return Scaffold(
       drawer: const AppDrawer(),
@@ -94,10 +153,18 @@ class _LeadScreenState extends State<LeadScreen> {
                 ),
                 child: TextField(
                   controller: _searchC,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: _onSearchChanged,
                   decoration: InputDecoration(
                     hintText: 'Search leads...',
                     prefixIcon: Icon(Icons.search, color: AppTheme.primaryBlue),
+                    suffixIcon: IconButton(
+                      onPressed: _openFilterDialog,
+                      icon: Icon(
+                        Icons.filter_list,
+                        color: _selectedStatus == null ? Colors.grey.shade600 : AppTheme.primaryBlue,
+                      ),
+                      tooltip: 'Filter',
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide.none,
@@ -144,20 +211,22 @@ class _LeadScreenState extends State<LeadScreen> {
                                   ),
                                   title: Text(
                                     lead.clientCompany as String,
-                                    style: const TextStyle(fontWeight: FontWeight.w800),
+                                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                                   ),
                                   subtitle: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       const SizedBox(height: 2),
-                                      Text(
-                                        lead.companyEmail as String,
-                                        style: TextStyle(color: Colors.grey.shade600),
-                                      ),
-                                      const SizedBox(height: 2),
+                                      if (((lead.companyEmail as String?) ?? '').trim().isNotEmpty) ...[
+                                        Text(
+                                          (lead.companyEmail as String).trim(),
+                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                        ),
+                                        const SizedBox(height: 2),
+                                      ],
                                       Text(
                                         '${lead.companyPhone} • ${lead.industry}',
-                                        style: TextStyle(color: Colors.grey.shade600),
+                                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                                       ),
                                     ],
                                   ),
@@ -174,11 +243,19 @@ class _LeadScreenState extends State<LeadScreen> {
                                     ),
                                   ),
                                   onTap: () {
-                                    Navigator.of(context).push(
+                                    Navigator.of(context)
+                                        .push<bool>(
                                       MaterialPageRoute(
                                         builder: (_) => LeadDetailScreen(lead: lead),
                                       ),
-                                    );
+                                    )
+                                        .then((updated) {
+                                      if (updated == true && context.mounted) {
+                                        context
+                                            .read<LeadProvider>()
+                                            .load(status: _selectedStatus, search: _searchC.text);
+                                      }
+                                    });
                                   },
                                 ),
                               );

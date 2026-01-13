@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:attendance/features/auth/presentation/login_screen.dart';
+import 'package:attendance/services/auth_service.dart';
 import 'package:attendance/state/main_nav_provider.dart';
 
 class AppDrawer extends StatelessWidget {
@@ -53,6 +54,7 @@ class AppDrawer extends StatelessWidget {
                   ),
                 );
                 if (ok == true) {
+                  await AuthService().logout();
                   context.read<MainNavProvider>().setIndex(0);
                   if (Navigator.canPop(context)) {
                     Navigator.pop(context);
