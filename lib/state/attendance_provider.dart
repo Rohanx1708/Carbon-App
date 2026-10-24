@@ -16,13 +16,27 @@ class AttendanceProvider extends ChangeNotifier {
   Object? _error;
   Object? get error => _error;
 
-  Future<void> load() async {
+  bool _hasLoaded = false;
+  bool get hasLoaded => _hasLoaded;
+
+  int _loadSeq = 0;
+
+  Future<void> loadIfNeeded() async {
+    if (_hasLoaded) return;
+    await refresh();
+  }
+
+  Future<void> refresh() async {
+    final seq = ++_loadSeq;
     try {
       _error = null;
       final list = await _service.records();
+      if (seq != _loadSeq) return;
       _records = list;
+      _hasLoaded = true;
       notifyListeners();
     } catch (e) {
+      if (seq != _loadSeq) return;
       _error = e;
       notifyListeners();
     }
@@ -35,6 +49,7 @@ class AttendanceProvider extends ChangeNotifier {
     try {
       final record = await _service.punch(action: action);
       _records = <AttendanceRecord>[record, ..._records];
+      _hasLoaded = true;
       return record;
     } catch (e) {
       _error = e;
@@ -48,6 +63,16 @@ class AttendanceProvider extends ChangeNotifier {
   Future<void> clearAll() async {
     await _service.clearAll();
     _records = <AttendanceRecord>[];
+    _hasLoaded = true;
+    notifyListeners();
+  }
+
+  void clearSession() {
+    _loadSeq++;
+    _records = <AttendanceRecord>[];
+    _hasLoaded = false;
+    _error = null;
+    _loading = false;
     notifyListeners();
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:attendance/services/local_storage_service.dart';
+import 'package:attendance/services/storage_keys.dart';
 
 class LeaveRequest {
   final String employeeName;
@@ -24,43 +25,41 @@ class LeaveRequest {
   });
 
   Map<String, dynamic> toJson() => {
-        'employeeName': employeeName,
-        'status': status,
-        'startDate': startDate.toIso8601String(),
-        'endDate': endDate.toIso8601String(),
-        'type': type,
-        'reason': reason,
-        'attachmentName': attachmentName,
-        'attachmentPath': attachmentPath,
-      };
+    'employeeName': employeeName,
+    'status': status,
+    'startDate': startDate.toIso8601String(),
+    'endDate': endDate.toIso8601String(),
+    'type': type,
+    'reason': reason,
+    'attachmentName': attachmentName,
+    'attachmentPath': attachmentPath,
+  };
 
   factory LeaveRequest.fromJson(Map<String, dynamic> json) => LeaveRequest(
-        employeeName: (json['employeeName'] as String?) ?? '',
-        status: (json['status'] as String?) ?? 'pending',
-        startDate: DateTime.parse(json['startDate'] as String),
-        endDate: DateTime.parse(json['endDate'] as String),
-        type: json['type'] as String,
-        reason: json['reason'] as String,
-        attachmentName: json['attachmentName'] as String?,
-        attachmentPath: json['attachmentPath'] as String?,
-      );
+    employeeName: (json['employeeName'] as String?) ?? '',
+    status: (json['status'] as String?) ?? 'pending',
+    startDate: DateTime.parse(json['startDate'] as String),
+    endDate: DateTime.parse(json['endDate'] as String),
+    type: json['type'] as String,
+    reason: json['reason'] as String,
+    attachmentName: json['attachmentName'] as String?,
+    attachmentPath: json['attachmentPath'] as String?,
+  );
 }
 
 class LeaveService {
-  static const String _key = 'leave_requests_v1';
+  LeaveService({LocalStorageService? storage}) : _storage = storage ?? LocalStorageService.instance;
+
+  final LocalStorageService _storage;
 
   Future<void> _save(List<LeaveRequest> list) async {
-    final prefs = await SharedPreferences.getInstance();
     final raw = list.map((e) => jsonEncode(e.toJson())).toList();
-    await prefs.setStringList(_key, raw);
+    await _storage.setStringList(StorageKeys.leaveRequests, raw);
   }
 
   Future<List<LeaveRequest>> all() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_key) ?? <String>[];
-    final list = raw
-        .map((e) => LeaveRequest.fromJson(jsonDecode(e) as Map<String, dynamic>))
-        .toList();
+    final raw = await _storage.getStringList(StorageKeys.leaveRequests) ?? <String>[];
+    final list = raw.map((e) => LeaveRequest.fromJson(jsonDecode(e) as Map<String, dynamic>)).toList();
     // Migrate old entries missing status to 'pending'
     bool mutated = false;
     final normalized = <LeaveRequest>[];
@@ -68,16 +67,18 @@ class LeaveService {
       final dyn = item as dynamic;
       final String? st = dyn.status as String?;
       if (st == null) {
-        normalized.add(LeaveRequest(
-          employeeName: item.employeeName,
-          status: 'pending',
-          startDate: item.startDate,
-          endDate: item.endDate,
-          type: item.type,
-          reason: item.reason,
-          attachmentName: item.attachmentName,
-          attachmentPath: item.attachmentPath,
-        ));
+        normalized.add(
+          LeaveRequest(
+            employeeName: item.employeeName,
+            status: 'pending',
+            startDate: item.startDate,
+            endDate: item.endDate,
+            type: item.type,
+            reason: item.reason,
+            attachmentName: item.attachmentName,
+            attachmentPath: item.attachmentPath,
+          ),
+        );
         mutated = true;
       } else {
         normalized.add(item);
@@ -110,5 +111,3 @@ class LeaveService {
     await _save(list);
   }
 }
-
-

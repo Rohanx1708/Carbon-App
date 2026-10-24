@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/widgets/app_empty_state.dart';
+import 'package:attendance/core/widgets/app_list_tile.dart';
+import 'package:attendance/core/theme/theme_context.dart';
 import 'leave_widgets.dart';
 
 import 'package:attendance/features/leave/data/leave_service.dart';
@@ -37,13 +40,7 @@ class LeaveScreenUI extends StatelessWidget {
               centerText: '5/15',
             ),
             const SizedBox(width: 40),
-            const DonutStat(
-              value: 2,
-              max: 7,
-              title: 'Sick Leave',
-              fillColor: AppTheme.accentRed,
-              centerText: '2/7',
-            ),
+            const DonutStat(value: 2, max: 7, title: 'Sick Leave', fillColor: AppTheme.accentRed, centerText: '2/7'),
             const SizedBox(width: 40),
             const DonutStat(
               value: 3,
@@ -61,11 +58,7 @@ class LeaveScreenUI extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Text(
                 '${filteredLeaves.length} requests',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary),
               ),
             ),
             const Spacer(),
@@ -83,11 +76,14 @@ class LeaveScreenUI extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: Row(
                   children: [
-                    Icon(Icons.sort, size: 16, color: Colors.grey.shade600),
+                    Icon(Icons.sort, size: 16, color: context.textSecondary),
                     const SizedBox(width: 6),
-                    Text('Sort by', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+                    Text(
+                      'Sort by',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: context.textSecondary),
+                    ),
                     const SizedBox(width: 4),
-                    Icon(Icons.arrow_drop_down, size: 18, color: Colors.grey.shade600),
+                    Icon(Icons.arrow_drop_down, size: 18, color: context.textSecondary),
                   ],
                 ),
               ),
@@ -102,42 +98,26 @@ class LeaveScreenUI extends StatelessWidget {
             switchOutCurve: Curves.easeIn,
             transitionBuilder: (child, animation) => FadeTransition(
               opacity: animation,
-              child: SizeTransition(
-                sizeFactor: animation,
-                axisAlignment: -1.0,
-                child: child,
-              ),
+              child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
             ),
             child: filteredLeaves.isEmpty
-                ? const _EmptyState(key: ValueKey('empty'))
+                ? const AppEmptyState(
+                    key: ValueKey('empty'),
+                    icon: Icons.event_busy_outlined,
+                    title: 'No leave requests',
+                    message: 'Tap + to submit a new leave request',
+                  )
                 : ListView.separated(
                     key: const ValueKey('list'),
                     itemCount: filteredLeaves.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    separatorBuilder: (_, __) => const SizedBox(height: kAppListTileSpacing),
                     itemBuilder: (context, index) {
                       final r = filteredLeaves[index];
-                      return TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 0, end: 1),
-                        duration: Duration(milliseconds: 250 + (index % 12) * 30),
-                        curve: Curves.easeOut,
-                        builder: (context, value, child) {
-                          return Opacity(
-                            opacity: value,
-                            child: Transform.translate(
-                              offset: Offset(0, (1 - value) * 12),
-                              child: child,
-                            ),
-                          );
-                        },
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: onTap != null ? () => onTap!(r) : null,
-                          child: LeaveCardCompact(
-                            leave: r,
-                            onEdit: () => onEdit(index, r),
-                            onDelete: () => onDelete(index),
-                          ),
-                        ),
+                      return LeaveCardCompact(
+                        leave: r,
+                        onTap: onTap != null ? () => onTap!(r) : null,
+                        onEdit: () => onEdit(index, r),
+                        onDelete: () => onDelete(index),
                       );
                     },
                   ),
@@ -147,46 +127,3 @@ class LeaveScreenUI extends StatelessWidget {
     );
   }
 }
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryBlue.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              Icons.event_available_outlined,
-              size: 64,
-              color: AppTheme.primaryBlue.withOpacity(0.6),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'No Leave Requests',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Tap the + button to submit a new leave request',
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-

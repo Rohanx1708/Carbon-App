@@ -16,15 +16,32 @@ class LeaveProvider extends ChangeNotifier {
   Object? _error;
   Object? get error => _error;
 
-  Future<void> load() async {
+  bool _hasLoaded = false;
+  bool get hasLoaded => _hasLoaded;
+
+  int _loadSeq = 0;
+
+  Future<void> loadIfNeeded() async {
+    if (_hasLoaded) return;
+    await refresh();
+  }
+
+  Future<void> refresh() async {
+    final seq = ++_loadSeq;
     _loading = true;
     _error = null;
     notifyListeners();
     try {
-      _leaves = await _service.all();
+      final list = await _service.all();
+      if (seq != _loadSeq) return;
+      _leaves = list;
+      _hasLoaded = true;
     } catch (e) {
-      _error = e;
-    } finally {
+      if (seq == _loadSeq) {
+        _error = e;
+      }
+    }
+    if (seq == _loadSeq) {
       _loading = false;
       notifyListeners();
     }
@@ -36,7 +53,7 @@ class LeaveProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _service.add(req);
-      await load();
+      await refresh();
       return true;
     } catch (e) {
       _error = e;
@@ -48,11 +65,20 @@ class LeaveProvider extends ChangeNotifier {
 
   Future<void> updateAt(int index, LeaveRequest req) async {
     await _service.updateAt(index, req);
-    await load();
+    await refresh();
   }
 
   Future<void> deleteAt(int index) async {
     await _service.deleteAt(index);
-    await load();
+    await refresh();
+  }
+
+  void clearSession() {
+    _loadSeq++;
+    _leaves = <LeaveRequest>[];
+    _hasLoaded = false;
+    _error = null;
+    _loading = false;
+    notifyListeners();
   }
 }

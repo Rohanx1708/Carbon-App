@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:attendance/core/utils/app_date_format.dart';
+import 'package:attendance/core/theme/app_colors.dart';
 import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/theme/theme_context.dart';
 import 'package:attendance/core/widgets/app_topbar.dart';
 import 'package:attendance/features/leave/data/leave_service.dart';
 
@@ -8,8 +11,7 @@ class LeaveDetailScreen extends StatelessWidget {
   const LeaveDetailScreen({super.key, required this.leave});
 
   String _formatDate(DateTime d) {
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
-    return '${d.day.toString().padLeft(2, '0')} ${months[d.month - 1]} ${d.year}';
+    return AppDateFormat.date(d);
   }
 
   int _daysInclusive(DateTime a, DateTime b) => b.difference(DateTime(a.year, a.month, a.day)).inDays + 1;
@@ -37,15 +39,9 @@ class LeaveDetailScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 16, offset: const Offset(0, 8))],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -64,18 +60,24 @@ class LeaveDetailScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(typeLabel, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.grey.shade600)),
+                          Text(
+                            typeLabel,
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.textSecondary),
+                          ),
                           const SizedBox(height: 4),
                           Text(
                             '${_formatDate(leave.startDate)} — ${_formatDate(leave.endDate)}',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.grey.shade900),
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: context.textPrimary),
                           ),
                           const SizedBox(height: 4),
                           Row(
                             children: [
                               Icon(Icons.timelapse, size: 16, color: AppTheme.primaryBlue),
                               const SizedBox(width: 6),
-                              Text('$days ${days == 1 ? 'day' : 'days'}', style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.primaryBlue)),
+                              Text(
+                                '$days ${days == 1 ? 'day' : 'days'}',
+                                style: TextStyle(fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
+                              ),
                             ],
                           ),
                         ],
@@ -89,9 +91,7 @@ class LeaveDetailScreen extends StatelessWidget {
                         border: Border.all(color: statusColor.withOpacity(0.25)),
                       ),
                       child: Text(
-                        status == 'approved'
-                            ? 'Approved'
-                            : (status == 'rejected' ? 'Rejected' : 'Pending'),
+                        status == 'approved' ? 'Approved' : (status == 'rejected' ? 'Rejected' : 'Pending'),
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: statusColor),
                       ),
                     ),
@@ -118,7 +118,7 @@ class LeaveDetailScreen extends StatelessWidget {
                             children: [
                               const Text('Reason', style: TextStyle(fontWeight: FontWeight.w700)),
                               const SizedBox(height: 6),
-                              Text(leave.reason, style: TextStyle(color: Colors.grey.shade700)),
+                              Text(leave.reason, style: TextStyle(color: context.textSecondary)),
                             ],
                           ),
                         ),
@@ -129,7 +129,10 @@ class LeaveDetailScreen extends StatelessWidget {
                       children: [
                         Icon(Icons.category_outlined, color: AppTheme.primaryBlue),
                         const SizedBox(width: 8),
-                        Text(typeLabel, style: TextStyle(color: Colors.grey.shade800, fontWeight: FontWeight.w600)),
+                        Text(
+                          typeLabel,
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -137,7 +140,10 @@ class LeaveDetailScreen extends StatelessWidget {
                       children: [
                         Icon(Icons.calendar_today_outlined, color: AppTheme.primaryBlue),
                         const SizedBox(width: 8),
-                        Text('${_formatDate(leave.startDate)} — ${_formatDate(leave.endDate)}', style: TextStyle(color: Colors.grey.shade800, fontWeight: FontWeight.w600)),
+                        Text(
+                          '${_formatDate(leave.startDate)} — ${_formatDate(leave.endDate)}',
+                          style: TextStyle(color: context.textPrimary, fontWeight: FontWeight.w600),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16),
@@ -148,7 +154,7 @@ class LeaveDetailScreen extends StatelessWidget {
                         Expanded(
                           child: Text(
                             leave.attachmentName ?? 'No attachment',
-                            style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                            style: TextStyle(color: context.textSecondary, fontWeight: FontWeight.w600),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -179,11 +185,12 @@ class _Timeline extends StatelessWidget {
 
   int get _currentStep => status == 'approved' ? 3 : (status == 'rejected' ? 2 : 1);
 
-  Color _colorFor(bool active) => active ? const Color(0xFF7C3AED) : Colors.grey.shade400;
+  Color _colorFor(BuildContext context, bool active) =>
+      active ? AppColors.primary : Theme.of(context).colorScheme.outline;
 
-  Widget _step(String label, int index) {
+  Widget _step(BuildContext context, String label, int index) {
     final bool active = index <= _currentStep;
-    final c = _colorFor(active);
+    final c = _colorFor(context, active);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -206,7 +213,11 @@ class _Timeline extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           label,
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: active ? Colors.grey.shade800 : Colors.grey.shade600),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: active ? context.textPrimary : context.textSecondary,
+          ),
         ),
       ],
     );
@@ -218,22 +229,29 @@ class _Timeline extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: context.subtleBorder),
       ),
       child: Row(
         children: [
-          _step('Create', 1),
-          Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Container(height: 2, color: Colors.grey.shade300))),
-          _step('Review', 2),
-          Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Container(height: 2, color: Colors.grey.shade300))),
-          _step(status == 'approved' ? 'Approved' : (status == 'rejected' ? 'Rejected' : 'Awaiting'), 3),
+          _step(context, 'Create', 1),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Container(height: 2, color: context.subtleBorder),
+            ),
+          ),
+          _step(context, 'Review', 2),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Container(height: 2, color: context.subtleBorder),
+            ),
+          ),
+          _step(context, status == 'approved' ? 'Approved' : (status == 'rejected' ? 'Rejected' : 'Awaiting'), 3),
         ],
       ),
     );
   }
 }
-
-
-

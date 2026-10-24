@@ -1,12 +1,23 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:attendance/core/widgets/app_dialog.dart';
+import 'package:attendance/core/feedback/user_facing_error.dart';
+import 'package:attendance/core/widgets/app_loader.dart';
+import 'package:attendance/core/utils/app_date_format.dart';
 import 'package:provider/provider.dart';
 
-import 'package:attendance/core/theme/app_theme.dart';
-import 'package:attendance/core/widgets/app_topbar.dart';
+import 'package:attendance/core/feedback/app_feedback.dart';
+import 'package:attendance/core/theme/theme_context.dart';
+import 'package:attendance/core/utils/app_open_document.dart';
+import 'package:attendance/core/widgets/app_confirm_dialog.dart';
+import 'package:attendance/core/widgets/app_detail.dart';
+import 'package:attendance/core/widgets/app_prompt_dialog.dart';
+import 'package:attendance/core/widgets/app_text_field.dart';
+import 'package:attendance/features/lead/data/lead_models.dart';
 import 'package:attendance/features/meeting/data/meeting_service.dart';
 import 'package:attendance/features/meeting/presentation/meeting_form_screen.dart';
 import 'package:attendance/state/meeting_provider.dart';
+import 'package:attendance/state/profile_provider.dart';
 
 class MeetingDetailScreen extends StatefulWidget {
   final Meeting meeting;
@@ -21,6 +32,13 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   final MeetingService _service = MeetingService();
   Future<RemoteMeetingDetails>? _future;
   Future<List<RemoteMeetingLog>>? _logsFuture;
+  Future<List<LeadDocument>>? _documentsFuture;
+
+  Future<void> _reloadDocuments(int meetingId) async {
+    setState(() {
+      _documentsFuture = _service.fetchDocuments(meetingId);
+    });
+  }
 
   Future<void> _reloadLogs(int meetingId) async {
     setState(() {
@@ -29,18 +47,17 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
   }
 
   Future<DateTime?> _pickDateTime(DateTime initial) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final date = await showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: DateTime(2000),
+      firstDate: today,
       lastDate: DateTime(2100),
     );
     if (date == null) return null;
     if (!mounted) return null;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-    );
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(initial));
     if (time == null) return null;
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
@@ -54,70 +71,146 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     DateTime newStart = currentStart;
     DateTime newEnd = currentEnd;
     bool saving = false;
+    final formKey = GlobalKey<FormState>();
 
-    final ok = await showDialog<bool>(
-      context: context,
+    final ok = await AppDialog.show<bool>(
+      context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setLocalState) {
-            return AlertDialog(
-              title: const Text('Postpone meeting'),
-              content: Column(
+            final now = DateTime.now();
+            return AppDialog(
+              title: 'Postpone meeting',
+              icon: Icons.event_repeat_rounded,
+              footer: AppDialogButtons(
+                confirmLabel: 'Postpone',
+                onCancel: saving ? () {} : () => Navigator.of(context).pop(false),
+                onConfirm: saving
+                    ? null
+                    : () {
+                        if (!newEnd.isAfter(newStart)) return;
+                        if (newStart.isBefore(now) || newEnd.isBefore(now)) return;
+                        if (!(formKey.currentState?.validate() ?? false)) return;
+                        setLocalState(() => saving = true);
+                        Navigator.of(context).pop(true);
+                      },
+              ),
+              child: Form(
+                key: formKey,
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'New time',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey.shade700),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: context.textSecondary),
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  Column(
                     children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: saving
-                              ? null
-                              : () async {
-                                  final picked = await _pickDateTime(newStart);
-                                  if (picked == null) return;
-                                  setLocalState(() {
-                                    newStart = picked;
-                                    if (!newEnd.isAfter(newStart)) {
-                                      newEnd = newStart.add(const Duration(hours: 1));
-                                    }
-                                  });
-                                },
-                          child: Text(DateFormat('d MMM yyyy, h:mm a').format(newStart)),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final picked = await _pickDateTime(newStart);
+                                if (picked == null) return;
+                                setLocalState(() {
+                                  newStart = picked;
+                                  if (!newEnd.isAfter(newStart)) {
+                                    newEnd = newStart.add(const Duration(hours: 1));
+                                  }
+                                });
+                              },
+                        child: Row(
+                          children: [
+                            Icon(Icons.calendar_today, size: 18, color: context.textSecondary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Start',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: context.textSecondary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    AppDateFormat.dateTime(newStart),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: saving
-                              ? null
-                              : () async {
-                                  final picked = await _pickDateTime(newEnd);
-                                  if (picked == null) return;
-                                  setLocalState(() {
-                                    newEnd = picked;
-                                  });
-                                },
-                          child: Text(DateFormat('d MMM yyyy, h:mm a').format(newEnd)),
+                      const SizedBox(height: 10),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final picked = await _pickDateTime(newEnd);
+                                if (picked == null) return;
+                                setLocalState(() {
+                                  newEnd = picked;
+                                });
+                              },
+                        child: Row(
+                          children: [
+                            Icon(Icons.schedule, size: 18, color: context.textSecondary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'End',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: context.textSecondary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    AppDateFormat.dateTime(newEnd),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Reason',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
+                  const SizedBox(height: AppDialog.fieldGap),
+                  AppTextField(
                     controller: reasonC,
+                    label: 'Reason',
+                    labelAbove: true,
+                    required: true,
+                    hint: 'Why are you postponing?',
                     minLines: 2,
                     maxLines: 5,
-                    decoration: const InputDecoration(hintText: 'Why are you postponing?'),
+                    enabled: !saving,
+                    textCapitalization: TextCapitalization.sentences,
                   ),
                   if (!newEnd.isAfter(newStart)) ...[
                     const SizedBox(height: 10),
@@ -125,23 +218,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
                   ],
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: saving
-                      ? null
-                      : () {
-                          if (!newEnd.isAfter(newStart)) return;
-                          if (reasonC.text.trim().isEmpty) return;
-                          setLocalState(() => saving = true);
-                          Navigator.of(context).pop(true);
-                        },
-                  child: const Text('Postpone'),
-                ),
-              ],
+              ),
             );
           },
         );
@@ -153,6 +230,11 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
+      final now = DateTime.now();
+      if (newStart.isBefore(now) || newEnd.isBefore(now)) {
+        messenger.showSnackBar(const SnackBar(content: Text('Past date/time is not allowed')));
+        return;
+      }
       await _service.postponeMeeting(
         meetingId: meetingId,
         newStartDateTime: newStart,
@@ -160,57 +242,23 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
         reason: reasonC.text.trim(),
       );
       if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Meeting postponed'), backgroundColor: Colors.green),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Meeting postponed'), backgroundColor: Colors.green));
       navigator.pop(true);
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-      );
+      messenger.showSnackBar(SnackBar(content: Text(UserFacingError.from(e)), backgroundColor: Colors.red));
     }
   }
 
   Future<void> _showAddLogDialog(int meetingId) async {
-    final controller = TextEditingController();
-    bool saving = false;
-
-    final comment = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            return AlertDialog(
-              title: const Text('Add log'),
-              content: TextField(
-                controller: controller,
-                minLines: 3,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  hintText: 'Write comment...',
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: saving ? null : () => Navigator.of(context).pop(null),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: saving
-                      ? null
-                      : () {
-                          final v = controller.text.trim();
-                          if (v.isEmpty) return;
-                          setLocalState(() => saving = true);
-                          Navigator.of(context).pop(v);
-                        },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+    final comment = await AppPromptDialog.show(
+      context,
+      title: 'Add log',
+      label: 'Comment',
+      hint: 'Write comment...',
+      confirmLabel: 'Save',
+      icon: Icons.notes_rounded,
+      minLines: 3,
+      maxLines: 6,
     );
 
     if (comment == null) return;
@@ -221,35 +269,126 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
       await _service.createLog(meetingId: meetingId, comment: comment);
       if (!mounted) return;
       await _reloadLogs(meetingId);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Log added'), backgroundColor: Colors.green),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('Log added'), backgroundColor: Colors.green));
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-      );
+      messenger.showSnackBar(SnackBar(content: Text(UserFacingError.from(e)), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _uploadDocument(int meetingId) async {
+    final picked = await FilePicker.platform.pickFiles(withData: false);
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    final path = file.path;
+    if (path == null || path.isEmpty) return;
+
+    final title = await AppPromptDialog.show(
+      context,
+      title: 'Upload file',
+      initialValue: file.name,
+      label: 'Title',
+      confirmLabel: 'Upload',
+      icon: Icons.upload_file_outlined,
+    );
+    if (title == null || title.isEmpty || !mounted) return;
+
+    try {
+      await _service.uploadDocument(meetingId: meetingId, filePath: path, filename: file.name, title: title);
+      if (!mounted) return;
+      await _reloadDocuments(meetingId);
+      AppFeedback.success(context, 'File uploaded');
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e);
+    }
+  }
+
+  Future<void> _deleteDocument(int meetingId, LeadDocument doc) async {
+    final ok = await AppConfirmDialog.show(
+      context,
+      title: 'Remove file',
+      message: 'Delete "${doc.title}"?',
+      confirmLabel: 'Delete',
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await _service.deleteDocument(meetingId: meetingId, documentId: doc.id);
+      if (!mounted) return;
+      await _reloadDocuments(meetingId);
+      AppFeedback.success(context, 'File removed');
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e);
+    }
+  }
+
+  Future<void> _showCompleteDialog(int meetingId) async {
+    final formKey = GlobalKey<FormState>();
+    final momC = TextEditingController();
+    final remarkC = TextEditingController();
+    final ok = await AppDialog.show<bool>(
+      context,
+      builder: (context) => AppDialog(
+        title: 'Complete meeting',
+        icon: Icons.check_circle_outline_rounded,
+        footer: AppDialogButtons(
+          confirmLabel: 'Complete',
+          onCancel: () => Navigator.pop(context, false),
+          onConfirm: () {
+            if (!(formKey.currentState?.validate() ?? false)) return;
+            Navigator.pop(context, true);
+          },
+        ),
+        child: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppTextField(
+                controller: momC,
+                label: 'Minutes of meeting (MoM)',
+                labelAbove: true,
+                required: true,
+                minLines: 2,
+                maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+              const SizedBox(height: AppDialog.fieldGap),
+              AppTextField(
+                controller: remarkC,
+                label: 'Remark',
+                labelAbove: true,
+                optional: true,
+                minLines: 1,
+                maxLines: 3,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await _service.completeMeeting(meetingId: meetingId, mom: momC.text.trim(), remark: remarkC.text.trim());
+      if (!mounted) return;
+      AppFeedback.success(context, 'Meeting completed');
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e);
     }
   }
 
   Future<void> _confirmAndDelete(int meetingId) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Delete meeting?'),
-          content: const Text('This action cannot be undone.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
+    final ok = await AppConfirmDialog.show(
+      context,
+      title: 'Delete meeting?',
+      message: 'This action cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
     );
 
     if (ok != true || !mounted) return;
@@ -262,15 +401,11 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
 
     if (!success) {
       final err = context.read<MeetingProvider>().error;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed: $err'), backgroundColor: Colors.red),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Failed: $err'), backgroundColor: Colors.red));
       return;
     }
 
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Meeting deleted'), backgroundColor: Colors.red),
-    );
+    messenger.showSnackBar(const SnackBar(content: Text('Meeting deleted'), backgroundColor: Colors.red));
     navigator.pop(true);
   }
 
@@ -281,6 +416,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     if (id != null) {
       _future = _service.fetchDetails(id);
       _logsFuture = _service.fetchLogs(id);
+      _documentsFuture = _service.fetchDocuments(id);
     }
   }
 
@@ -288,351 +424,223 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> {
     return type.replaceFirst(RegExp(r'^With\s+', caseSensitive: false), '').trim();
   }
 
-  String _dateTimeLabel(DateTime dt) => DateFormat('d MMM yyyy, h:mm a').format(dt);
+  String _dateTimeLabel(DateTime dt) => AppDateFormat.dateTime(dt);
 
-  Widget _sectionTitle(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-          color: Colors.grey.shade700,
-          letterSpacing: 0.4,
-        ),
-      ),
-    );
-  }
-
-  Widget _infoRow(BuildContext context, {required String label, required String value}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _card(BuildContext context, Widget child) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha((0.05 * 255).round()),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(14),
-      child: child,
-    );
+  Future<void> _edit(RemoteMeetingDetails d) async {
+    final updated = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => MeetingFormScreen(initialMeeting: d.toMeetingForEdit())));
+    if (updated == true && mounted) Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
     final id = widget.meeting.id;
     if (id == null || _future == null) {
-      return Scaffold(
-        appBar: const GradientAppBar(title: 'Meeting Details', showBack: true, showProfileAction: false),
-        body: const Center(child: Text('Meeting id not available')),
+      return AppDetailScaffold(
+        title: 'Meeting Details',
+        error: Exception('Meeting id not available'),
+        errorTitle: 'Could not open meeting',
       );
     }
+
+    final canManage = context.watch<ProfileProvider>().canManageMeetings;
 
     return FutureBuilder<RemoteMeetingDetails>(
       future: _future,
       builder: (context, snap) {
-        final loading = snap.connectionState == ConnectionState.waiting;
-        if (loading) {
-          return Scaffold(
-            appBar: const GradientAppBar(title: 'Meeting Details', showBack: true, showProfileAction: false),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snap.hasError) {
-          return Scaffold(
-            appBar: const GradientAppBar(title: 'Meeting Details', showBack: true, showProfileAction: false),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Failed: ${snap.error}'),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _future = _service.fetchDetails(id);
-                        });
-                      },
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        final d = snap.data;
+        if (d == null) {
+          final waiting = snap.connectionState == ConnectionState.waiting;
+          return AppDetailScaffold(
+            title: 'Meeting Details',
+            loading: waiting || snap.error == null,
+            error: waiting ? null : snap.error,
+            errorTitle: 'Could not load meeting',
+            onRetry: () => setState(() {
+              _future = _service.fetchDetails(id);
+            }),
           );
         }
 
-        final d = snap.data!;
         final typeLabel = _typeLabel(d.uiMeetingType);
         final location = (d.location ?? '').trim();
-        final notes = (d.notes ?? '').trim();
         final other = (d.customType ?? '').trim();
+        final completed = d.status.toLowerCase() == 'completed';
+        final mom = (d.mom ?? '').trim();
+        final remark = (d.remark ?? '').trim();
 
-        final related = <String>[];
-        if ((d.leadName ?? '').trim().isNotEmpty) related.add('Lead: ${d.leadName!.trim()}');
-        if ((d.clientName ?? '').trim().isNotEmpty) related.add('Client: ${d.clientName!.trim()}');
-        if (d.employeeNames.isNotEmpty) related.add('Team: ${d.employeeNames.join(', ')}');
-        if (d.meetingType == 'other' && other.isNotEmpty) related.add('Other: $other');
-
-        return Scaffold(
-          appBar: GradientAppBar(
-            title: 'Meeting Details',
-            showBack: true,
-            showProfileAction: false,
-            actions: [
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.white),
-                onSelected: (value) async {
-                  switch (value) {
-                    case 'add_log':
-                      await _showAddLogDialog(d.id);
-                      break;
-                    case 'postpone':
-                      await _showPostponeDialog(meetingId: d.id, currentStart: d.startTime, currentEnd: d.endTime);
-                      break;
-                    case 'edit':
-                      final updated = await Navigator.of(context).push<bool>(
-                        MaterialPageRoute(builder: (_) => MeetingFormScreen(initialMeeting: d.toMeetingForEdit())),
-                      );
-                      if (updated == true && context.mounted) {
-                        Navigator.of(context).pop(true);
-                      }
-                      break;
-                    case 'delete':
-                      await _confirmAndDelete(d.id);
-                      break;
-                  }
-                },
-                itemBuilder: (context) {
-                  return const [
-                    PopupMenuItem<String>(
-                      value: 'add_log',
-                      child: Text('Add log'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'postpone',
-                      child: Text('Postpone'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'edit',
-                      child: Text('Edit'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'delete',
-                      child: Text('Delete'),
-                    ),
-                  ];
-                },
+        return AppDetailScaffold(
+          title: 'Meeting Details',
+          onRefresh: () async {
+            setState(() {
+              _future = _service.fetchDetails(id);
+              _logsFuture = _service.fetchLogs(id);
+              _documentsFuture = _service.fetchDocuments(id);
+            });
+          },
+          actions: [
+            if (canManage) ...[
+              IconButton(
+                tooltip: 'Edit',
+                icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                onPressed: () => _edit(d),
+              ),
+              IconButton(
+                tooltip: 'Delete',
+                icon: const Icon(Icons.delete_outline, color: Colors.white),
+                onPressed: () => _confirmAndDelete(d.id),
               ),
             ],
+          ],
+          header: AppDetailHeader(
+            title: d.title,
+            icon: Icons.groups_outlined,
+            subtitle:
+                '${AppDateFormat.date(d.startTime)} · ${AppDateFormat.time(d.startTime)} – ${AppDateFormat.time(d.endTime)}',
+            subtitleIcon: Icons.event_outlined,
+            caption: location.isNotEmpty ? location : null,
+            status: d.status,
+            badges: [if (typeLabel.isNotEmpty) AppDetailHeaderBadge(typeLabel)],
           ),
-          body: Container(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+          sections: [
+            AppDetailSection(
+              title: 'Basic',
+              icon: Icons.info_outline,
               children: [
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                AppDetailRow(icon: Icons.person_outline, label: 'Organizer', value: d.organizerName),
+                AppDetailRow(icon: Icons.category_outlined, label: 'Type', value: typeLabel),
+                if ((d.leadName ?? '').trim().isNotEmpty)
+                  AppDetailRow(icon: Icons.business_center_outlined, label: 'Lead', value: d.leadName),
+                if ((d.clientName ?? '').trim().isNotEmpty)
+                  AppDetailRow(icon: Icons.corporate_fare_outlined, label: 'Client', value: d.clientName),
+                if (d.meetingType == 'other' && other.isNotEmpty)
+                  AppDetailRow(icon: Icons.more_horiz, label: 'Other', value: other),
+              ],
+            ),
+            AppDetailSection(
+              title: 'Schedule',
+              icon: Icons.schedule_outlined,
+              children: [
+                AppDetailRow(icon: Icons.play_arrow_outlined, label: 'Start', value: _dateTimeLabel(d.startTime)),
+                AppDetailRow(icon: Icons.stop_outlined, label: 'End', value: _dateTimeLabel(d.endTime)),
+                if (location.isNotEmpty) AppDetailRow(icon: Icons.place_outlined, label: 'Location', value: location),
+              ],
+            ),
+            if (d.employeeNames.isNotEmpty)
+              AppDetailSection(
+                title: 'Team',
+                icon: Icons.groups_outlined,
+                count: d.employeeNames.length,
+                children: [for (final n in d.employeeNames) AppDetailPersonTile(name: n)],
+              ),
+            AppDetailSection(
+              title: 'Agenda',
+              icon: Icons.notes_outlined,
+              children: [AppDetailText(d.agenda, emptyText: 'No agenda')],
+            ),
+            if ((d.notes ?? '').trim().isNotEmpty)
+              AppDetailSection(title: 'Notes', icon: Icons.sticky_note_2_outlined, children: [AppDetailText(d.notes)]),
+            if (mom.isNotEmpty || remark.isNotEmpty)
+              AppDetailSection(
+                title: 'Outcome',
+                icon: Icons.task_alt_outlined,
+                children: [
+                  if (mom.isNotEmpty) AppDetailRow(label: 'Minutes (MoM)', value: mom),
+                  if (remark.isNotEmpty) AppDetailRow(label: 'Remark', value: remark),
+                ],
+              ),
+            AppDetailSection(
+              title: 'Logs',
+              icon: Icons.history,
+              trailing: AppDetailSectionAction(label: 'Add', onPressed: () => _showAddLogDialog(d.id)),
+              children: [
+                FutureBuilder<List<RemoteMeetingLog>>(
+                  future: _logsFuture,
+                  builder: (context, logSnap) {
+                    if (logSnap.connectionState == ConnectionState.waiting) {
+                      return const AppLoader(expand: false, size: AppLoaderSize.medium);
+                    }
+                    if (logSnap.hasError) {
+                      return Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              d.title,
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryBlue.withAlpha((0.12 * 255).round()),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: AppTheme.primaryBlue.withAlpha((0.22 * 255).round()),
-                              ),
-                            ),
-                            child: Text(
-                              typeLabel,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                color: AppTheme.primaryBlue,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
+                          const Expanded(child: AppDetailEmpty('Could not load logs')),
+                          TextButton(onPressed: () => _reloadLogs(d.id), child: const Text('Retry')),
                         ],
-                      ),
-                      const SizedBox(height: 14),
-                      _sectionTitle('BASIC'),
-                      _infoRow(context, label: 'Organizer', value: d.organizerName),
-                      if (related.isNotEmpty) _infoRow(context, label: 'With', value: related.join(' • ')),
-                      _sectionTitle('SCHEDULE'),
-                      _infoRow(context, label: 'Start', value: _dateTimeLabel(d.startTime)),
-                      _infoRow(context, label: 'End', value: _dateTimeLabel(d.endTime)),
-                      _infoRow(context, label: 'Status', value: d.status),
-                      if (location.isNotEmpty) ...[
-                        _sectionTitle('LOCATION'),
-                        _infoRow(context, label: 'Place', value: location),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: _sectionTitle('LOGS')),
-                          TextButton(
-                            onPressed: () => _showAddLogDialog(d.id),
-                            child: const Text('Add'),
+                      );
+                    }
+                    final logs = logSnap.data ?? const <RemoteMeetingLog>[];
+                    if (logs.isEmpty) return const AppDetailEmpty('No logs yet');
+                    return Column(
+                      children: [
+                        for (final l in logs)
+                          AppDetailTimelineItem(
+                            icon: Icons.chat_bubble_outline,
+                            title: l.comment.trim().isEmpty ? '-' : l.comment.trim(),
+                            meta: _dateTimeLabel(l.createdAt),
                           ),
-                        ],
-                      ),
-                      FutureBuilder<List<RemoteMeetingLog>>(
-                        future: _logsFuture,
-                        builder: (context, logSnap) {
-                          final loading = logSnap.connectionState == ConnectionState.waiting;
-                          if (loading) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Center(child: CircularProgressIndicator()),
-                            );
-                          }
-                          if (logSnap.hasError) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Failed: ${logSnap.error}'),
-                                const SizedBox(height: 8),
-                                ElevatedButton(
-                                  onPressed: () => _reloadLogs(d.id),
-                                  child: const Text('Retry'),
-                                ),
-                              ],
-                            );
-                          }
-                          final logs = logSnap.data ?? const <RemoteMeetingLog>[];
-                          if (logs.isEmpty) {
-                            return Text(
-                              'No logs',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade600),
-                            );
-                          }
-
-                          return Column(
-                            children: logs
-                                .map(
-                                  (l) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            l.comment.trim().isEmpty ? '-' : l.comment.trim(),
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w700,
-                                              color: Colors.grey.shade900,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _sectionTitle('AGENDA'),
-                      Text(
-                        d.agenda.trim().isEmpty ? '-' : d.agenda.trim(),
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade900),
-                      ),
-                      if (notes.isNotEmpty) ...[
-                        const SizedBox(height: 14),
-                        _sectionTitle('NOTES'),
-                        Text(
-                          notes,
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade900),
-                        ),
                       ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _card(
-                  context,
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _sectionTitle('ATTACHMENTS'),
-                      Text(
-                        'No attachments',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
               ],
             ),
-          ),
+            AppDetailSection(
+              title: 'Attachments',
+              icon: Icons.attach_file,
+              trailing: canManage
+                  ? AppDetailSectionAction(label: 'Upload', onPressed: () => _uploadDocument(d.id))
+                  : null,
+              children: [
+                FutureBuilder<List<LeadDocument>>(
+                  future: _documentsFuture,
+                  builder: (context, docSnap) {
+                    if (docSnap.connectionState == ConnectionState.waiting) {
+                      return const AppLoader(expand: false, size: AppLoaderSize.medium);
+                    }
+                    if (docSnap.hasError) {
+                      return Row(
+                        children: [
+                          const Expanded(child: AppDetailEmpty('Could not load attachments')),
+                          TextButton(onPressed: () => _reloadDocuments(d.id), child: const Text('Retry')),
+                        ],
+                      );
+                    }
+                    final docs = docSnap.data ?? const <LeadDocument>[];
+                    if (docs.isEmpty) return const AppDetailEmpty('No attachments');
+                    return Column(
+                      children: [
+                        for (final doc in docs)
+                          AppDetailFileTile(
+                            title: doc.title,
+                            onTap: () => AppOpenDocument.open(context, doc.fileUrl),
+                            onDelete: canManage ? () => _deleteDocument(d.id, doc) : null,
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+          bottomBar: canManage
+              ? AppDetailActionBar(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          _showPostponeDialog(meetingId: d.id, currentStart: d.startTime, currentEnd: d.endTime),
+                      icon: const Icon(Icons.update),
+                      label: const Text('Postpone'),
+                    ),
+                    if (!completed)
+                      FilledButton.icon(
+                        onPressed: () => _showCompleteDialog(d.id),
+                        icon: const Icon(Icons.check_circle_outline),
+                        label: const Text('Complete'),
+                      ),
+                  ],
+                )
+              : null,
         );
       },
     );

@@ -1,9 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:attendance/core/theme/app_theme.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:attendance/core/widgets/app_loader.dart';
+import 'package:attendance/core/widgets/app_skeleton.dart';
+import 'package:provider/provider.dart';
+
+import 'package:attendance/core/feedback/app_feedback.dart';
+import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/theme/theme_context.dart';
+import 'package:attendance/core/widgets/app_confirm_dialog.dart';
+import 'package:attendance/core/widgets/app_form_decoration.dart';
 import 'package:attendance/core/widgets/app_topbar.dart';
-import 'dart:io';
+import 'package:attendance/features/auth/presentation/login_screen.dart';
+import 'package:attendance/features/profile/data/profile_models.dart';
+import 'package:attendance/state/main_nav_provider.dart';
+import 'package:attendance/state/profile_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -13,289 +23,468 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Mock profile data; in a real app this would come from a service/store
-  String name = 'Aarav Sharma';
-  String designation = 'Software Engineer';
-  String phone = '+91 98765 43210';
-  String email = 'aarav@example.com';
-  String address = '123 MG Road, Dehradun';
-
   static final RegExp _emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 
-  PlatformFile? _avatar;
-  bool _editing = false;
-
-  final _phoneC = TextEditingController();
+  final _nameC = TextEditingController();
   final _emailC = TextEditingController();
-  final _addressC = TextEditingController();
+  bool _editing = false;
 
   @override
   void initState() {
     super.initState();
-    _phoneC.text = phone;
-    _emailC.text = email;
-    _addressC.text = address;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<ProfileProvider>().loadIfNeeded();
+    });
   }
 
   @override
   void dispose() {
-    _phoneC.dispose();
+    _nameC.dispose();
     _emailC.dispose();
-    _addressC.dispose();
     super.dispose();
   }
 
-  InputDecoration _dec(String label, {Widget? prefix}) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: prefix,
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      border: const OutlineInputBorder(),
-    );
+  static String _formatEmploymentType(String raw) {
+    if (raw.trim().isEmpty) return '-';
+    return raw.replaceAll('_', ' ');
   }
 
-  Future<void> _pickAvatar() async {
+  void _syncControllers(UserProfile profile) {
+    if (_editing) return;
+    _nameC.text = profile.name;
+    _emailC.text = profile.email;
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
     try {
       final res = await FilePicker.platform.pickFiles(
-        type: FileType.image,
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
         allowMultiple: false,
         withData: false,
       );
-      if (res != null && res.files.isNotEmpty) {
-        setState(() => _avatar = res.files.first);
+      if (res == null || res.files.isEmpty) return;
+      final file = res.files.first;
+      final path = file.path;
+      if (path == null) return;
+
+      final size = file.size;
+      if (size > 5 * 1024 * 1024) {
+        if (!mounted) return;
+        AppFeedback.info(context, 'Image must be 5 MB or smaller');
+        return;
       }
-    } catch (_) {}
+
+      final ok = await context.read<ProfileProvider>().uploadAvatar(filePath: path, filename: file.name);
+      if (!mounted) return;
+      if (ok) {
+        AppFeedback.success(context, 'Avatar updated');
+      } else {
+        AppFeedback.error(context, context.read<ProfileProvider>().error ?? Exception('Upload failed'));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e);
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    final name = _nameC.text.trim();
+    final email = _emailC.text.trim();
+    if (name.isEmpty) {
+      AppFeedback.info(context, 'Name is required');
+      return;
+    }
+    if (!_emailRegex.hasMatch(email)) {
+      AppFeedback.info(context, 'Enter a valid email');
+      return;
+    }
+
+    final ok = await context.read<ProfileProvider>().updateProfile(name: name, email: email);
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _editing = false);
+      AppFeedback.success(context, 'Profile updated');
+    } else {
+      AppFeedback.error(context, context.read<ProfileProvider>().error ?? Exception('Update failed'));
+    }
+  }
+
+  Future<void> _showChangePassword() async {
+    final currentC = TextEditingController();
+    final passwordC = TextEditingController();
+    final confirmC = TextEditingController();
+
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: MediaQuery.viewInsetsOf(ctx).bottom + 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Change password', style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: currentC,
+                obscureText: true,
+                decoration: AppFormDecoration.field(label: 'Current password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordC,
+                obscureText: true,
+                decoration: AppFormDecoration.field(label: 'New password'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmC,
+                obscureText: true,
+                decoration: AppFormDecoration.field(label: 'Confirm new password'),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Update password')),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (submitted != true || !mounted) {
+      currentC.dispose();
+      passwordC.dispose();
+      confirmC.dispose();
+      return;
+    }
+
+    final currentPassword = currentC.text;
+    final password = passwordC.text;
+    final confirm = confirmC.text;
+    currentC.dispose();
+    passwordC.dispose();
+    confirmC.dispose();
+
+    if (password.length < 8) {
+      AppFeedback.info(context, 'Password must be at least 8 characters');
+      return;
+    }
+    if (password != confirm) {
+      AppFeedback.info(context, 'Passwords do not match');
+      return;
+    }
+
+    final ok = await context.read<ProfileProvider>().changePassword(
+      currentPassword: currentPassword,
+      password: password,
+      passwordConfirmation: confirm,
+    );
+    if (!mounted) return;
+    if (ok) {
+      AppFeedback.success(context, 'Password updated');
+    } else {
+      AppFeedback.error(context, context.read<ProfileProvider>().error ?? Exception('Failed'));
+    }
+  }
+
+  Future<void> _logout() async {
+    final ok = await AppConfirmDialog.show(
+      context,
+      title: 'Log out',
+      message: 'Sign out and return to the login screen?',
+      confirmLabel: 'Log out',
+      destructive: true,
+      icon: Icons.logout_rounded,
+    );
+    if (ok != true || !mounted) return;
+
+    await context.read<ProfileProvider>().logout();
+    context.read<MainNavProvider>().setIndex(0);
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+  }
+
+  Widget _avatar(UserProfile profile) {
+    final url = profile.avatarUrl;
+    Widget image;
+    if (url != null) {
+      image = Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.white, size: 48),
+      );
+    } else {
+      image = const Icon(Icons.person, color: Colors.white, size: 48);
+    }
+
+    return GestureDetector(
+      onTap: context.watch<ProfileProvider>().saving ? null : _pickAndUploadAvatar,
+      child: Stack(
+        children: [
+          Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(colors: [AppTheme.primaryBlue, AppTheme.primaryBlueLight]),
+              boxShadow: [
+                BoxShadow(color: AppTheme.primaryBlue.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 6)),
+              ],
+            ),
+            child: ClipOval(child: image),
+          ),
+          Positioned(
+            right: 2,
+            bottom: 2,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6, offset: const Offset(0, 3)),
+                ],
+              ),
+              padding: const EdgeInsets.all(4),
+              child: Icon(Icons.camera_alt_outlined, size: 16, color: AppTheme.primaryBlue),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<ProfileProvider>();
+    final profile = provider.profile;
+
+    if (profile != null) {
+      _syncControllers(profile);
+    }
+
     return Scaffold(
       appBar: GradientAppBar(
         title: 'Profile',
         showBack: true,
         showProfileAction: false,
         actions: [
-          IconButton(
-            tooltip: _editing ? 'Cancel' : 'Edit',
-            icon: Icon(_editing ? Icons.close : Icons.edit_outlined, color: Colors.white),
-            onPressed: () {
-              setState(() {
-                _editing = !_editing;
-                if (!_editing) {
-                  // reset controllers to current values on cancel
-                  _phoneC.text = phone;
-                  _emailC.text = email;
-                  _addressC.text = address;
-                }
-              });
-            },
-          ),
+          if (profile != null)
+            IconButton(
+              tooltip: _editing ? 'Cancel' : 'Edit',
+              icon: Icon(_editing ? Icons.close : Icons.edit_outlined, color: Colors.white),
+              onPressed: provider.saving
+                  ? null
+                  : () {
+                      setState(() {
+                        _editing = !_editing;
+                        if (!_editing) {
+                          final p = context.read<ProfileProvider>().profile;
+                          if (p != null) {
+                            _nameC.text = p.name;
+                            _emailC.text = p.email;
+                          }
+                        }
+                      });
+                    },
+            ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+      body: Builder(
+        builder: (context) {
+          if (provider.loading && profile == null) {
+            return const AppSkeletonDetail();
+          }
+          if (profile == null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Center(
-                      child: _editing
-                          ? GestureDetector(
-                              onTap: _pickAvatar,
-                              child: Stack(
-                                children: [
-                                  Container(
-                                    width: 100,
-                                    height: 100,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: LinearGradient(colors: [AppTheme.primaryBlue, AppTheme.primaryBlueLight]),
-                                      boxShadow: [
-                                        BoxShadow(color: AppTheme.primaryBlue.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 6)),
-                                      ],
-                                    ),
-                                    child: ClipOval(
-                                      child: _avatar?.path != null
-                                          ? Image.file(
-                                              File(_avatar!.path!),
-                                              fit: BoxFit.cover,
-                                            )
-                                          : const Center(child: Icon(Icons.person, color: Colors.white, size: 48)),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    right: 2,
-                                    bottom: 2,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6, offset: const Offset(0, 3)),
-                                        ],
-                                      ),
-                                      padding: const EdgeInsets.all(4),
-                                      child: Icon(Icons.camera_alt_outlined, size: 16, color: AppTheme.primaryBlue),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(colors: [AppTheme.primaryBlue, AppTheme.primaryBlueLight]),
-                                boxShadow: [
-                                  BoxShadow(color: AppTheme.primaryBlue.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 6)),
-                                ],
-                              ),
-                              child: ClipOval(
-                                child: _avatar?.path != null
-                                    ? Image.file(
-                                        File(_avatar!.path!),
-                                        fit: BoxFit.cover,
-                                      )
-                                    : const Center(child: Icon(Icons.person, color: Colors.white, size: 48)),
-                              ),
+                    Text('Could not load profile', style: TextStyle(color: context.textSecondary)),
+                    const SizedBox(height: 12),
+                    FilledButton(onPressed: provider.refresh, child: const Text('Retry')),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 16, offset: const Offset(0, 8)),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Column(
+                      children: [
+                        Center(child: _avatar(profile)),
+                        const SizedBox(height: 12),
+                        if (!_editing)
+                          Text(
+                            profile.name,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: context.textPrimary),
+                          )
+                        else
+                          TextField(
+                            controller: _nameC,
+                            textInputAction: TextInputAction.next,
+                            decoration: AppFormDecoration.field(
+                              label: 'Name',
+                              prefixIcon: Icon(Icons.person_outline, color: AppTheme.primaryBlue),
                             ),
+                          ),
+                        if (!_editing) ...[
+                          if (profile.email.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            _ContactLine(icon: Icons.email_outlined, text: profile.email),
+                          ],
+                          if ((profile.employee?.phone ?? '').isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            _ContactLine(icon: Icons.phone_outlined, text: profile.employee!.phone),
+                          ],
+                        ] else ...[
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _emailC,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: AppFormDecoration.field(
+                              label: 'E-Mail',
+                              prefixIcon: Icon(Icons.email_outlined, color: AppTheme.primaryBlue),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (_editing) ...[
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        height: 48,
+                        child: FilledButton.icon(
+                          onPressed: provider.saving ? null : _saveProfile,
+                          icon: provider.saving
+                              ? const AppProgress(size: AppLoaderSize.small)
+                              : const Icon(Icons.save_outlined),
+                          label: Text(provider.saving ? 'Saving…' : 'Save'),
+                        ),
+                      ),
+                    ],
+                    if (profile.employee != null) ...[
+                      const SizedBox(height: 24),
+                      Text(
+                        'Employment',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: context.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoItem(
+                        label: 'Designation',
+                        value: profile.employee!.designation,
+                        leading: const Icon(Icons.work_outline, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoItem(
+                        label: 'Department',
+                        value: profile.employee!.department,
+                        leading: const Icon(Icons.apartment_outlined, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoItem(
+                        label: 'Reporting manager',
+                        value: profile.employee!.reportingManager?.name ?? 'None',
+                        leading: const Icon(Icons.supervisor_account_outlined, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoItem(
+                        label: 'Employment type',
+                        value: _formatEmploymentType(profile.employee!.employmentType),
+                        leading: const Icon(Icons.schedule_outlined, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      _InfoItem(
+                        label: 'Status',
+                        value: profile.employee!.status,
+                        leading: const Icon(Icons.info_outline, color: Colors.grey),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    OutlinedButton.icon(
+                      onPressed: provider.saving ? null : _showChangePassword,
+                      icon: const Icon(Icons.lock_outline),
+                      label: const Text('Change password'),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      name,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      designation,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: AppTheme.primaryBlue,
-                        fontWeight: FontWeight.w600,
+                    OutlinedButton.icon(
+                      onPressed: provider.saving ? null : _logout,
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Log out'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                        side: BorderSide(color: Theme.of(context).colorScheme.error.withOpacity(0.5)),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                Text('Contact', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.grey.shade700)),
-                const SizedBox(height: 8),
-                if (!_editing) ...[
-                  _InfoItem(label: 'E-Mail', value: email, leading: const Icon(Icons.email_outlined, color: Colors.grey)),
-                  const SizedBox(height: 12),
-                  _InfoItem(label: 'Mobile', value: phone, leading: const Icon(Icons.phone_outlined, color: Colors.grey)),
-                  const SizedBox(height: 12),
-                  _InfoItem(label: 'Address', value: address, leading: const Icon(Icons.home_outlined, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                ] else ...[
-                  TextField(
-                    controller: _emailC,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: _dec('E-Mail', prefix: Icon(Icons.email_outlined, color: AppTheme.primaryBlue)),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _phoneC,
-                    keyboardType: TextInputType.phone,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(10),
-                    ],
-                    decoration: _dec('Mobile', prefix: Icon(Icons.phone_outlined, color: AppTheme.primaryBlue)),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _addressC,
-                    maxLines: 2,
-                    decoration: _dec('Address', prefix: Icon(Icons.home_outlined, color: AppTheme.primaryBlue)),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        final nextEmail = _emailC.text.trim();
-                        final nextPhone = _phoneC.text.trim();
-
-                        if (nextEmail.isNotEmpty && !_emailRegex.hasMatch(nextEmail)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Enter valid email')),
-                          );
-                          return;
-                        }
-
-                        if (nextPhone.isNotEmpty && nextPhone.length != 10) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Enter 10-digit phone number')),
-                          );
-                          return;
-                        }
-
-                        setState(() {
-                          email = nextEmail;
-                          phone = nextPhone;
-                          address = _addressC.text.trim();
-                          _editing = false;
-                        });
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated')));
-                      },
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Save'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.primaryBlue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 }
 
+class _ContactLine extends StatelessWidget {
+  const _ContactLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: context.textSecondary),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 14, color: context.textSecondary, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _InfoItem extends StatelessWidget {
+  const _InfoItem({required this.label, required this.value, this.leading});
+
   final String label;
   final String value;
   final Widget? leading;
-  const _InfoItem({required this.label, required this.value, this.leading});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: context.subtleBorder),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -310,9 +499,15 @@ class _InfoItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                  Text(
+                    label,
+                    style: TextStyle(fontSize: 12, color: context.textSecondary, fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(height: 4),
-                  Text(value.isEmpty ? '-' : value, style: TextStyle(fontSize: 15, color: Colors.grey.shade900, fontWeight: FontWeight.w700)),
+                  Text(
+                    value.isEmpty ? '-' : value,
+                    style: TextStyle(fontSize: 15, color: context.textPrimary, fontWeight: FontWeight.w700),
+                  ),
                 ],
               ),
             ),
@@ -322,5 +517,3 @@ class _InfoItem extends StatelessWidget {
     );
   }
 }
-
-

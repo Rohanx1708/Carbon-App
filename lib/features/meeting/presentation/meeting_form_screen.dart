@@ -1,12 +1,29 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:attendance/core/widgets/app_loader.dart';
 import 'package:provider/provider.dart';
 
-import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/feedback/app_feedback.dart';
+import 'package:attendance/core/feedback/user_facing_error.dart';
+import 'package:attendance/core/theme/app_colors.dart';
+import 'package:attendance/core/theme/app_dimensions.dart';
+import 'package:attendance/core/theme/theme_context.dart';
+import 'package:attendance/core/widgets/app_button.dart';
+import 'package:attendance/core/widgets/app_choice_segments.dart';
+import 'package:attendance/core/widgets/app_date_time_picker_field.dart';
+import 'package:attendance/core/widgets/app_dropdown.dart';
+import 'package:attendance/core/widgets/app_form_decoration.dart';
+import 'package:attendance/core/widgets/app_form_field_label.dart';
+import 'package:attendance/core/widgets/app_form_picker_field.dart';
+import 'package:attendance/core/widgets/app_form_sticky_bar.dart';
+import 'package:attendance/core/widgets/app_labeled_field.dart';
+import 'package:attendance/core/widgets/app_section_title.dart';
+import 'package:attendance/core/widgets/app_selection_chip.dart';
+import 'package:attendance/core/widgets/app_text_field.dart';
 import 'package:attendance/core/widgets/app_topbar.dart';
 import 'package:attendance/features/meeting/data/meeting_service.dart';
 import 'package:attendance/state/meeting_provider.dart';
+import 'package:attendance/services/directory_cache_service.dart';
 import 'package:attendance/services/directory_service.dart';
 
 class MeetingFormScreen extends StatefulWidget {
@@ -59,15 +76,15 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
 
   bool _submitting = false;
 
-  static const List<String> _meetingTypes = <String>[
-    'With Lead',
-    'With Client',
-    'With Team',
-    'Other',
-  ];
+  String? _organizerError;
+  String? _startError;
+  String? _endError;
+  String? _peopleError;
+  String? _leadError;
+  String? _clientError;
 
-
-  final DirectoryService _directoryService = DirectoryService();
+  final DirectoryCacheService _directoryCache = DirectoryCacheService.instance;
+  final MeetingService _meetingService = MeetingService();
   bool _loadingDirectories = false;
   Object? _directoryError;
   List<DirectoryItem> _leads = <DirectoryItem>[];
@@ -112,17 +129,13 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
       _directoryError = null;
     });
     try {
-      final results = await Future.wait([
-        _directoryService.leads(),
-        _directoryService.clients(),
-        _directoryService.employees(),
-      ]);
+      final results = await _directoryCache.loadAll();
 
       if (!mounted) return;
       setState(() {
-        _leads = results[0] as List<DirectoryItem>;
-        _clients = results[1] as List<DirectoryItem>;
-        _employees = results[2] as List<DirectoryItem>;
+        _leads = results.leads;
+        _clients = results.clients;
+        _employees = results.employees;
       });
     } catch (e) {
       if (!mounted) return;
@@ -130,10 +143,9 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
         _directoryError = e;
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _loadingDirectories = false;
-      });
+      if (mounted) {
+        setState(() => _loadingDirectories = false);
+      }
     }
   }
 
@@ -160,125 +172,81 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
     );
   }
 
-  InputDecoration _decoration({
-    required String label,
-    bool requiredField = false,
-    String? hint,
-    Widget? prefixIcon,
-    Widget? suffixIcon,
-  }) {
-    final baseLabelStyle = TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w500);
-    return InputDecoration(
-      label: RichText(
-        text: TextSpan(
-          style: baseLabelStyle,
-          children: [
-            TextSpan(text: label),
-            if (requiredField)
-              const TextSpan(
-                text: ' *',
-                style: TextStyle(color: Colors.red, fontWeight: FontWeight.w800),
+  void _onTypeChangedSegment(String next) {
+    _onTypeChanged(next);
+    setState(() {
+      _leadError = null;
+      _clientError = null;
+      _peopleError = null;
+    });
+  }
+
+  String _peopleSummary() {
+    if (_selectedEmployeeIds.isEmpty) return 'Choose people';
+    final selected = _employees.where((e) => _selectedEmployeeIds.contains(e.id)).toList();
+    if (selected.isEmpty) return 'Choose people';
+    if (selected.length == 1) return selected.first.name;
+    return '${selected.length} people selected';
+  }
+
+  List<Widget> _selectedPeopleChips() {
+    final selected = _employees.where((e) => _selectedEmployeeIds.contains(e.id)).toList();
+    if (selected.isEmpty) return const [];
+    return [
+      const SizedBox(height: AppDimensions.spacing8),
+      Wrap(
+        spacing: AppDimensions.spacing8,
+        runSpacing: AppDimensions.spacing8,
+        children: selected
+            .map(
+              (e) => AppSelectionChip(
+                label: e.name,
+                onDeleted: () {
+                  setState(() {
+                    _selectedEmployeeIds.remove(e.id);
+                    _peopleError = null;
+                  });
+                },
               ),
-          ],
-        ),
+            )
+            .toList(),
       ),
-      hintText: hint,
-      hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-      labelStyle: baseLabelStyle,
-      prefixIcon: prefixIcon,
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: Colors.grey.shade50,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: Colors.grey.shade200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide(color: AppTheme.primaryBlue.withAlpha((0.6 * 255).round())),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-    );
-  }
-
-  Widget _sectionTitle(String text, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: AppTheme.primaryBlue.withAlpha((0.12 * 255).round()),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: AppTheme.primaryBlue, size: 18),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          text,
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.grey.shade900),
-        ),
-      ],
-    );
-  }
-
-  Widget _card({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha((0.04 * 255).round()),
-            blurRadius: 14,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: child,
-      ),
-    );
+    ];
   }
 
   Future<void> _pickStart() async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final date = await showDatePicker(
       context: context,
-      firstDate: DateTime(2020),
+      firstDate: today,
       lastDate: now.add(const Duration(days: 365)),
       initialDate: _start ?? now,
     );
     if (date == null) return;
 
     if (!mounted) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_start ?? now),
-    );
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_start ?? now));
     if (time == null) return;
 
     setState(() {
       _start = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _startError = null;
       if (_end != null && _start != null && _end!.isBefore(_start!)) {
         _end = null;
+        _endError = null;
       }
     });
   }
 
   Future<void> _pickEnd() async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final base = _start ?? now;
 
     final date = await showDatePicker(
       context: context,
-      firstDate: DateTime(2020),
+      firstDate: today,
       lastDate: now.add(const Duration(days: 365)),
       initialDate: _end ?? base,
     );
@@ -293,15 +261,12 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
 
     setState(() {
       _end = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _endError = null;
     });
   }
 
   Future<void> _pickAttachments() async {
-    final res = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      withData: false,
-      allowMultiple: true,
-    );
+    final res = await FilePicker.platform.pickFiles(type: FileType.any, withData: false, allowMultiple: true);
     if (res != null && res.files.isNotEmpty) {
       setState(() {
         _attachments = List<PlatformFile>.from(res.files);
@@ -333,7 +298,6 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
     }
 
     final overlay = Overlay.of(context);
-    if (overlay == null) return;
 
     final box = context.findRenderObject() as RenderBox?;
     final overlayBox = overlay.context.findRenderObject() as RenderBox?;
@@ -407,6 +371,17 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
+
+    setState(() {
+      _organizerError = null;
+      _startError = null;
+      _endError = null;
+      _peopleError = null;
+      _leadError = null;
+      _clientError = null;
+    });
+
     final ok = _formKey.currentState!.validate();
     if (!ok) {
       if (_titleC.text.trim().isEmpty) {
@@ -424,77 +399,86 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
       return;
     }
     if (_organizerId == null) {
+      setState(() => _organizerError = 'Please select organizer');
       await _scrollTo(_organizerAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select organizer')),
-      );
       return;
     }
     if (_start == null) {
+      setState(() => _startError = 'Please select start date and time');
       await _scrollTo(_startAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select start date/time')),
-      );
       return;
     }
     if (_end == null) {
+      setState(() => _endError = 'Please select end date and time');
       await _scrollTo(_endAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select end date/time')),
-      );
       return;
     }
     if (_end!.isBefore(_start!)) {
+      setState(() => _endError = 'End must be after start');
       await _scrollTo(_endAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End time must be after start time')),
-      );
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_start!.isBefore(now)) {
+      setState(() => _startError = 'Start cannot be in the past');
+      await _scrollTo(_startAnchorKey);
+      return;
+    }
+    if (_end!.isBefore(now)) {
+      setState(() => _endError = 'End cannot be in the past');
+      await _scrollTo(_endAnchorKey);
       return;
     }
 
     if (_meetingType == 'With Lead' && _selectedLeadId == null) {
+      setState(() => _leadError = 'Please select a lead');
       await _scrollTo(_leadAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select lead')),
-      );
       return;
     }
 
     if (_meetingType == 'With Client' && _selectedClientId == null) {
+      setState(() => _clientError = 'Please select a client');
       await _scrollTo(_clientAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select client')),
-      );
       return;
     }
 
     if (_meetingType == 'With Team' && _selectedEmployeeIds.isEmpty) {
+      setState(() => _peopleError = 'Select at least one person');
       await _scrollTo(_employeesAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select employee(s)')),
-      );
       return;
     }
 
     if (_meetingType == 'Other' && _otherMeetingC.text.trim().isEmpty) {
       await _scrollTo(_otherAnchorKey);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter other meeting details')),
-      );
       return;
+    }
+
+    if (!_isEdit) {
+      final conflictEmployeeIds = <int>{_organizerId!};
+      if (_meetingType == 'With Team') {
+        conflictEmployeeIds.addAll(_selectedEmployeeIds);
+      }
+
+      for (final employeeId in conflictEmployeeIds) {
+        final conflicts = await _meetingService.checkConflicts(
+          employeeId: employeeId,
+          startDateTime: _start!,
+          endDateTime: _end!,
+        );
+        if (conflicts.hasAny) {
+          AppFeedback.error(context, Exception('Schedule conflict detected for an attendee'));
+          return;
+        }
+      }
     }
 
     setState(() => _submitting = true);
 
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     try {
-      final attachments = _attachments
-          .map(
-            (f) => MeetingAttachment(name: f.name, path: f.path),
-          )
-          .toList();
+      final attachments = _attachments.map((f) => MeetingAttachment(name: f.name, path: f.path)).toList();
 
       final meeting = Meeting(
         id: widget.initialMeeting?.id,
@@ -503,9 +487,7 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
         type: _meetingType,
         lead: _meetingType == 'With Lead' ? _selectedLeadId.toString() : null,
         client: _meetingType == 'With Client' ? _selectedClientId.toString() : null,
-        team: _meetingType == 'With Team'
-            ? _selectedEmployeeIds.map((e) => e.toString()).toList()
-            : const <String>[],
+        team: _meetingType == 'With Team' ? _selectedEmployeeIds.map((e) => e.toString()).toList() : const <String>[],
         otherMeeting: _meetingType == 'Other' ? _otherMeetingC.text.trim() : null,
         startDateTime: _start!,
         endDateTime: _end!,
@@ -516,24 +498,29 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
         createdAt: widget.initialMeeting?.createdAt ?? DateTime.now(),
       );
 
-      final ok = _isEdit
-          ? await context.read<MeetingProvider>().update(meeting)
-          : await context.read<MeetingProvider>().add(meeting);
-      if (!ok) {
-        throw context.read<MeetingProvider>().error ?? Exception('Failed');
+      if (_isEdit) {
+        final ok = await context.read<MeetingProvider>().update(meeting);
+        if (!ok) {
+          throw context.read<MeetingProvider>().error ?? Exception('Failed');
+        }
+      } else {
+        final newId = await context.read<MeetingProvider>().addAndGetId(meeting);
+        if (newId == null) {
+          throw context.read<MeetingProvider>().error ?? Exception('Failed');
+        }
+        for (final file in _attachments) {
+          final path = file.path;
+          if (path == null || path.isEmpty) continue;
+          await _meetingService.uploadDocument(meetingId: newId, filePath: path, filename: file.name, title: file.name);
+        }
       }
 
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(_isEdit ? 'Meeting updated' : 'Meeting saved'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (!mounted) return;
+      AppFeedback.success(context, _isEdit ? 'Meeting updated' : 'Meeting saved');
       navigator.pop(true);
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
-      );
+      if (!mounted) return;
+      AppFeedback.error(context, e);
     } finally {
       if (mounted) {
         setState(() => _submitting = false);
@@ -541,314 +528,302 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
     }
   }
 
+  static const _fieldGap = AppDimensions.spacing12;
+  static const _sectionGap = AppDimensions.spacing24;
+
+  Widget _section(String title, List<Widget> fields) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppSectionTitle(title: title),
+        const SizedBox(height: AppDimensions.spacing12),
+        for (var i = 0; i < fields.length; i++) ...[if (i > 0) const SizedBox(height: _fieldGap), fields[i]],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    String fmt(DateTime? d) => d == null ? 'Select' : DateFormat('d MMM yyyy, h:mm a').format(d);
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: GradientAppBar(title: _isEdit ? 'Edit Meeting' : 'New Meeting', showBack: true, showProfileAction: false),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          controller: _scrollController,
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        _isEdit ? 'Edit meeting' : 'Create meeting',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.grey.shade900),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _isEdit ? 'Update the details below.' : 'Fill the details below to create a meeting.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.3),
-                      ),
-                      const SizedBox(height: 16),
-                      _sectionTitle('Basics', Icons.event_outlined),
-                      const SizedBox(height: 12),
+      body: Column(
+        children: [
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _section('Meeting', [
                       Container(
                         key: _titleAnchorKey,
-                        child: TextFormField(
+                        child: AppTextField(
                           controller: _titleC,
-                        decoration: _decoration(
-                          label: 'Meeting Title',
-                          requiredField: true,
-                          hint: 'e.g. Weekly sync',
-                          prefixIcon: const Icon(Icons.title_outlined),
-                        ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          label: 'Title',
+                          labelAbove: true,
+                          required: true,
+                          hint: 'Enter meeting title',
+                          textInputAction: TextInputAction.next,
+                          textCapitalization: TextCapitalization.sentences,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a title' : null,
                         ),
                       ),
-                      const SizedBox(height: 12),
                       if (_loadingDirectories)
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
-                          child: LinearProgressIndicator(minHeight: 3),
+                          child: Center(child: AppProgress(size: AppLoaderSize.small)),
                         ),
                       if (_directoryError != null)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.only(top: 4),
                           child: Row(
                             children: [
-                              Expanded(child: Text('Failed to load directories: ${_directoryError.toString()}')),
-                              TextButton(
-                                onPressed: _loadDirectories,
-                                child: const Text('Retry'),
+                              Expanded(
+                                child: Text(
+                                  UserFacingError.from(_directoryError!),
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                ),
                               ),
+                              TextButton(onPressed: _loadDirectories, child: const Text('Retry')),
                             ],
                           ),
                         ),
                       Container(
                         key: _organizerAnchorKey,
-                        child: DropdownButtonFormField<int>(
+                        child: AppDropdown<int>(
                           value: _organizerId,
-                          isExpanded: true,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black),
+                          label: 'Organizer',
+                          labelAbove: true,
+                          required: true,
+                          hint: 'Select organizer',
+                          errorText: _organizerError,
                           items: _employees
                               .map(
                                 (e) => DropdownMenuItem(
                                   value: e.id,
-                                  child: Text(
-                                    e.name,
-                                    style: const TextStyle(fontSize: 12),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  child: Text(e.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                                 ),
                               )
                               .toList(),
-                          onChanged: (v) => setState(() => _organizerId = v),
-                          decoration: _decoration(
-                            label: 'Organizer (Employee)',
-                            requiredField: true,
-                            prefixIcon: const Icon(Icons.person_outline),
-                          ),
+                          onChanged: _loadingDirectories
+                              ? null
+                              : (v) => setState(() {
+                                  _organizerId = v;
+                                  _organizerError = null;
+                                }),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Container(
+                      Column(
                         key: _meetingTypeAnchorKey,
-                        child: DropdownButtonFormField<String>(
-                          value: _meetingType,
-                          isExpanded: true,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black),
-                          items: _meetingTypes
-                              .map(
-                                (t) => DropdownMenuItem(
-                                  value: t,
-                                  child: Text(
-                                    t,
-                                    style: const TextStyle(fontSize: 12),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: _onTypeChanged,
-                          decoration: _decoration(
-                            label: 'Meeting Type',
-                            requiredField: true,
-                            prefixIcon: const Icon(Icons.category_outlined),
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const AppFormFieldLabel(text: 'Meeting type', required: true),
+                          const SizedBox(height: kAppFormLabelGap),
+                          AppChoiceSegments<String>(
+                            value: _meetingType,
+                            onChanged: _onTypeChangedSegment,
+                            options: const [
+                              AppSegmentOption(value: 'With Team', label: 'Team'),
+                              AppSegmentOption(value: 'With Client', label: 'Client'),
+                              AppSegmentOption(value: 'With Lead', label: 'Lead'),
+                              AppSegmentOption(value: 'Other', label: 'Other'),
+                            ],
                           ),
-                        ),
+                        ],
                       ),
-                      if (_meetingType == 'With Lead') ...[
-                        const SizedBox(height: 12),
+                      if (_meetingType == 'With Lead')
                         Container(
                           key: _leadAnchorKey,
-                          child: DropdownButtonFormField<int>(
+                          child: AppDropdown<int>(
                             value: _selectedLeadId,
-                            isExpanded: true,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black),
+                            label: 'Lead',
+                            labelAbove: true,
+                            required: true,
+                            hint: 'Select lead',
+                            errorText: _leadError,
                             items: _leads
                                 .map(
                                   (n) => DropdownMenuItem(
                                     value: n.id,
-                                    child: Text(
-                                      n.name,
-                                      style: const TextStyle(fontSize: 12),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                    child: Text(n.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (v) => setState(() => _selectedLeadId = v),
-                            decoration: _decoration(
-                              label: 'Select Lead',
-                              prefixIcon: const Icon(Icons.business_center_outlined),
-                            ),
+                            onChanged: (v) => setState(() {
+                              _selectedLeadId = v;
+                              _leadError = null;
+                            }),
                           ),
                         ),
-                      ],
-                      if (_meetingType == 'With Client') ...[
-                        const SizedBox(height: 12),
+                      if (_meetingType == 'With Client')
                         Container(
                           key: _clientAnchorKey,
-                          child: DropdownButtonFormField<int>(
+                          child: AppDropdown<int>(
                             value: _selectedClientId,
-                            isExpanded: true,
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black),
+                            label: 'Client',
+                            labelAbove: true,
+                            required: true,
+                            hint: 'Select client',
+                            errorText: _clientError,
                             items: _clients
                                 .map(
                                   (n) => DropdownMenuItem(
                                     value: n.id,
-                                    child: Text(
-                                      n.name,
-                                      style: const TextStyle(fontSize: 12),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                                    child: Text(n.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (v) => setState(() => _selectedClientId = v),
-                            decoration: _decoration(
-                              label: 'Select Client',
-                              prefixIcon: const Icon(Icons.apartment_outlined),
-                            ),
+                            onChanged: (v) => setState(() {
+                              _selectedClientId = v;
+                              _clientError = null;
+                            }),
                           ),
                         ),
-                      ],
-                      if (_meetingType == 'With Team') ...[
-                        const SizedBox(height: 12),
+                      if (_meetingType == 'With Team')
                         Container(
                           key: _employeesAnchorKey,
-                          child: CompositedTransformTarget(
-                          link: _employeeDropdownLink,
-                          child: InkWell(
-                            onTap: _loadingDirectories ? null : _toggleEmployeeDropdown,
-                            borderRadius: BorderRadius.circular(14),
-                            child: InputDecorator(
-                              decoration: _decoration(
-                                label: 'Select Employees',
-                                requiredField: true,
-                                prefixIcon: const Icon(Icons.group_outlined),
-                                suffixIcon: Icon(
-                                  _employeeDropdownOverlay != null ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                                ),
-                              ),
-                              child: Text(
-                                _selectedEmployeeIds.isEmpty
-                                    ? 'Tap to select'
-                                    : 'Selected: ${_selectedEmployeeIds.length}',
-                                style: TextStyle(
-                                  color: _selectedEmployeeIds.isEmpty ? Colors.grey.shade600 : Colors.grey.shade900,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                ),
+                          child: AppLabeledField(
+                            label: 'People',
+                            required: true,
+                            errorText: _peopleError,
+                            child: CompositedTransformTarget(
+                              link: _employeeDropdownLink,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  InkWell(
+                                    onTap: _loadingDirectories ? null : _toggleEmployeeDropdown,
+                                    borderRadius: BorderRadius.circular(AppDimensions.radius12),
+                                    child: InputDecorator(
+                                      decoration: AppFormDecoration.input(
+                                        prefixIcon: const Icon(Icons.group_outlined, size: 20),
+                                        suffixIcon: Icon(
+                                          _employeeDropdownOverlay != null
+                                              ? Icons.keyboard_arrow_up
+                                              : Icons.keyboard_arrow_down,
+                                          size: 22,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _peopleSummary(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                          color: _selectedEmployeeIds.isEmpty
+                                              ? context.textSecondary
+                                              : context.textPrimary,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  ..._selectedPeopleChips(),
+                                ],
                               ),
                             ),
                           ),
-                          ),
                         ),
-                      ],
-                      if (_meetingType == 'Other') ...[
-                        const SizedBox(height: 12),
+                      if (_meetingType == 'Other')
                         Container(
                           key: _otherAnchorKey,
-                          child: TextFormField(
+                          child: AppTextField(
                             controller: _otherMeetingC,
-                          decoration: _decoration(
                             label: 'Other meeting',
-                            hint: 'Write meeting type/details',
-                            prefixIcon: const Icon(Icons.edit_note_outlined),
-                          ),
-                          validator: (v) {
-                            if (_meetingType != 'Other') return null;
-                            return (v == null || v.trim().isEmpty) ? 'Required' : null;
-                          },
+                            labelAbove: true,
+                            required: true,
+                            hint: 'Describe this meeting',
+                            textCapitalization: TextCapitalization.sentences,
+                            validator: (v) {
+                              if (_meetingType != 'Other') return null;
+                              return (v == null || v.trim().isEmpty) ? 'Required' : null;
+                            },
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 18),
-                      _sectionTitle('Schedule', Icons.schedule_outlined),
-                      const SizedBox(height: 12),
+                    ]),
+                    const SizedBox(height: _sectionGap),
+                    _section('When', [
                       Container(
                         key: _startAnchorKey,
-                        child: OutlinedButton.icon(
-                          onPressed: _pickStart,
-                          icon: const Icon(Icons.play_arrow_outlined),
-                          label: Align(alignment: Alignment.centerLeft, child: Text('Start Date Time: ${fmt(_start)}')),
+                        child: AppDateTimePickerField(
+                          label: 'Start',
+                          required: true,
+                          value: _start,
+                          onTap: _pickStart,
+                          errorText: _startError,
+                          placeholder: 'Select start',
                         ),
                       ),
-                      const SizedBox(height: 10),
                       Container(
                         key: _endAnchorKey,
-                        child: OutlinedButton.icon(
-                          onPressed: _pickEnd,
-                          icon: const Icon(Icons.stop_outlined),
-                          label: Align(alignment: Alignment.centerLeft, child: Text('End Date Time: ${fmt(_end)}')),
+                        child: AppDateTimePickerField(
+                          label: 'End',
+                          required: true,
+                          value: _end,
+                          onTap: _pickEnd,
+                          errorText: _endError,
+                          placeholder: 'Select end',
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
+                      AppTextField(
                         controller: _locationC,
-                        decoration: _decoration(
-                          label: 'Location (optional)',
-                          hint: 'e.g. Conference Room A',
-                          prefixIcon: const Icon(Icons.location_on_outlined),
-                        ),
+                        label: 'Location',
+                        labelAbove: true,
+                        optional: true,
+                        hint: 'Add location',
+                        textInputAction: TextInputAction.next,
+                        prefixIcon: const Icon(Icons.location_on_outlined, size: 20),
                       ),
-                      const SizedBox(height: 18),
-                      _sectionTitle('Details', Icons.description_outlined),
-                      const SizedBox(height: 12),
+                    ]),
+                    const SizedBox(height: _sectionGap),
+                    _section('Details', [
                       Container(
                         key: _agendaAnchorKey,
-                        child: TextFormField(
+                        child: AppTextField(
                           controller: _agendaC,
-                        decoration: _decoration(
                           label: 'Agenda',
-                          requiredField: true,
-                          hint: 'Write agenda...',
-                          prefixIcon: const Icon(Icons.subject_outlined),
-                        ),
-                        maxLines: 3,
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          labelAbove: true,
+                          required: true,
+                          hint: 'What will you discuss?',
+                          textCapitalization: TextCapitalization.sentences,
+                          textInputAction: TextInputAction.next,
+                          maxLines: 2,
+                          minLines: 2,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter an agenda' : null,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      TextFormField(
+                      AppTextField(
                         controller: _notesC,
-                        decoration: _decoration(
-                          label: 'Notes (optional)',
-                          hint: 'Any additional notes...',
-                          prefixIcon: const Icon(Icons.sticky_note_2_outlined),
-                        ),
-                        maxLines: 3,
+                        label: 'Notes',
+                        labelAbove: true,
+                        optional: true,
+                        hint: 'Any additional notes...',
+                        textCapitalization: TextCapitalization.sentences,
+                        textInputAction: TextInputAction.done,
+                        maxLines: 2,
+                        minLines: 2,
                       ),
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _pickAttachments,
-                        icon: const Icon(Icons.attach_file),
-                        label: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            _attachments.isEmpty ? 'Attachments' : 'Attachments: ${_attachments.length} file(s)',
-                            style: const TextStyle(color: Colors.black),
-                          ),
-                        ),
+                      AppFormPickerField(
+                        label: 'Attachments',
+                        optional: true,
+                        onTap: _pickAttachments,
+                        prefixIcon: const Icon(Icons.attach_file, size: 20),
+                        valueText: _attachments.isEmpty ? 'Add attachment' : '${_attachments.length} selected',
+                        isPlaceholder: _attachments.isEmpty,
                       ),
-                      if (_attachments.isNotEmpty) ...[
-                        const SizedBox(height: 10),
+                      if (_attachments.isNotEmpty)
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: AppDimensions.spacing8,
+                          runSpacing: AppDimensions.spacing8,
                           children: _attachments
                               .map(
-                                (f) => Chip(
-                                  label: Text(
-                                    f.name,
-                                    style: const TextStyle(color: Colors.black),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                (f) => AppSelectionChip(
+                                  label: f.name,
                                   onDeleted: () {
                                     setState(() {
                                       _attachments = _attachments.where((x) => x != f).toList();
@@ -858,57 +833,23 @@ class _MeetingFormScreenState extends State<MeetingFormScreen> {
                               )
                               .toList(),
                         ),
-                      ],
-                    ],
-                  ),
+                    ]),
+                    const SizedBox(height: AppDimensions.spacing32),
+                  ],
                 ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  height: 54,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [AppTheme.primaryBlue, AppTheme.primaryBlueLight]),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryBlue.withAlpha((0.28 * 255).round()),
-                          blurRadius: 12,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      ),
-                      onPressed: _submitting ? null : _submit,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (_submitting)
-                            const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          else
-                            const Icon(Icons.save, color: Colors.white),
-                          const SizedBox(width: 10),
-                          Text(
-                            _submitting ? (_isEdit ? 'Updating...' : 'Saving...') : (_isEdit ? 'Update Meeting' : 'Save Meeting'),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
+          AppFormStickyBar(
+            child: AppButton(
+              label: _isEdit ? 'Update meeting' : 'Save meeting',
+              loading: _submitting,
+              loadingLabel: _isEdit ? 'Updating' : 'Saving',
+              icon: Icons.check,
+              onPressed: _submitting ? null : _submit,
+            ),
+          ),
+        ],
       ),
     );
   }

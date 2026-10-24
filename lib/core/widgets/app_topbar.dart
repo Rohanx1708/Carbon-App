@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/theme/app_colors.dart';
+import 'package:attendance/core/theme/app_dimensions.dart';
+import 'package:attendance/core/theme/app_text_styles.dart';
+import 'package:attendance/core/widgets/app_notification_action.dart';
 
 class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -7,6 +10,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   final bool showPlusAction;
   final bool showBack;
   final bool showProfileAction;
+  final bool showNotificationAction;
 
   const GradientAppBar({
     super.key,
@@ -15,10 +19,11 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.showPlusAction = false,
     this.showBack = false,
     this.showProfileAction = true,
+    this.showNotificationAction = false,
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(64);
+  Size get preferredSize => const Size.fromHeight(AppDimensions.appBarHeight);
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
           ),
           tooltip: 'Add',
         ),
+      if (showNotificationAction) const AppNotificationAction(),
       if (showProfileAction)
         IconButton(
           tooltip: 'Profile',
@@ -44,13 +50,13 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
 
     return AppBar(
       elevation: 0,
-      backgroundColor: AppTheme.primaryBlue,
+      backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       iconTheme: const IconThemeData(color: Colors.white),
       actionsIconTheme: const IconThemeData(color: Colors.white),
       centerTitle: false,
       titleSpacing: 12,
-      toolbarHeight: 56,
+      toolbarHeight: AppDimensions.appBarHeight,
       leading: Builder(
         builder: (context) => showBack
             ? IconButton(
@@ -66,15 +72,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       title: Align(
         alignment: Alignment.centerLeft,
-        child: Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-            fontSize: 20,
-            letterSpacing: 0.2,
-          ),
-        ),
+        child: Text(title, style: AppTextStyles.appBarTitle(Brightness.dark).copyWith(color: Colors.white)),
       ),
       actions: trailing,
       // No rounded shape so the gradient doesn't get cut on the sides
@@ -82,5 +80,3 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 }
-
-

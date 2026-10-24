@@ -1,379 +1,252 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:attendance/core/cache/cache_stamp.dart';
+import 'package:attendance/features/lead/data/lead_models.dart';
+import 'package:attendance/services/api_client.dart';
+import 'package:attendance/services/local_storage_service.dart';
+import 'package:attendance/services/storage_keys.dart';
 
-import 'package:attendance/services/app_config.dart';
-import 'package:attendance/services/auth_service.dart';
-
-class Lead {
-  final int? id;
-  final String clientCompany;
-  final String companyEmail;
-  final String companyPhone;
-  final String pocDesignation;
-  final String pocPhone;
-  final String status; // Cold / Warm / Hot
-  final String industry;
-  final String requirements;
-  final DateTime createdAt;
-
-  Lead({
-    this.id,
-    required this.clientCompany,
-    required this.companyEmail,
-    required this.companyPhone,
-    required this.pocDesignation,
-    required this.pocPhone,
-    required this.status,
-    required this.industry,
-    required this.requirements,
-    required this.createdAt,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'clientCompany': clientCompany,
-        'companyEmail': companyEmail,
-        'companyPhone': companyPhone,
-        'pocDesignation': pocDesignation,
-        'pocPhone': pocPhone,
-        'status': status,
-        'industry': industry,
-        'requirements': requirements,
-        'createdAt': createdAt.toIso8601String(),
-      };
-
-  factory Lead.fromJson(Map<String, dynamic> json) => Lead(
-        id: json['id'] is int ? (json['id'] as int) : int.tryParse((json['id'] ?? '').toString()),
-        clientCompany: (json['clientCompany'] as String?) ?? '',
-        companyEmail: (json['companyEmail'] as String?) ?? '',
-        companyPhone: (json['companyPhone'] as String?) ?? '',
-        pocDesignation: (json['pocDesignation'] as String?) ?? '',
-        pocPhone: (json['pocPhone'] as String?) ?? '',
-        status: (json['status'] as String?) ?? 'Cold',
-        industry: (json['industry'] as String?) ?? '',
-        requirements: (json['requirements'] as String?) ?? '',
-        createdAt: DateTime.tryParse((json['createdAt'] as String?) ?? '') ?? DateTime.now(),
-      );
-}
+export 'lead_models.dart';
 
 class LeadService {
-  static const String _key = 'leads_v1';
+  LeadService({ApiClient? apiClient, LocalStorageService? storage})
+    : _api = apiClient ?? ApiClient(),
+      _storage = storage ?? LocalStorageService.instance;
 
-  static DateTime _parseApiDateTime(String raw) {
-    final parsed = DateTime.tryParse(raw);
-    if (parsed != null) return parsed;
-    return DateFormat('yyyy-MM-dd HH:mm:ss').parse(raw, true).toLocal();
-  }
+  final ApiClient _api;
+  final LocalStorageService _storage;
 
-  Future<void> createRemote(Lead lead) async {
-    final token = await AuthService().getToken();
-    final tokenType = (await AuthService().getTokenType()) ?? 'Bearer';
-    if (token == null || token.trim().isEmpty) {
-      throw Exception('Not authenticated');
-    }
-
-    final baseUrl = AppConfig.baseUrl.trim();
-    if (baseUrl.isEmpty) {
-      throw Exception('BASE_URL is not configured');
-    }
-
-    final payload = <String, dynamic>{
-      'company_name': lead.clientCompany,
-      'company_email': lead.companyEmail,
-      'company_phone': lead.companyPhone,
-      'poc_designation': lead.pocDesignation,
-      'poc_phone': lead.pocPhone,
-      'lead_status': lead.status.toLowerCase(),
-      'industry': lead.industry,
-      'requirements': lead.requirements,
-    };
-
-    final uri = Uri.parse(baseUrl).resolve('/api/v1/leads');
-    final client = HttpClient();
-    try {
-      final req = await client.postUrl(uri);
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.authorizationHeader, '$tokenType $token');
-      req.add(utf8.encode(jsonEncode(payload)));
-
-      final res = await req.close();
-      final raw = await res.transform(utf8.decoder).join();
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final msg = (decoded['message'] as String?) ?? 'Failed to create lead';
-          throw Exception(msg);
-        } catch (_) {
-          throw Exception('Failed to create lead');
-        }
-      }
-    } finally {
-      client.close(force: true);
-    }
+  Map<String, String> _queryParams(LeadListQuery query) {
+    final qp = <String, String>{};
+    final status = (query.status ?? '').trim().toLowerCase();
+    final stage = (query.stage ?? '').trim().toLowerCase();
+    final source = (query.source ?? '').trim().toLowerCase();
+    final search = (query.search ?? '').trim();
+    if (status.isNotEmpty) qp['status'] = status;
+    if (stage.isNotEmpty) qp['stage'] = stage;
+    if (source.isNotEmpty) qp['source'] = source;
+    if (search.isNotEmpty) qp['search'] = search;
+    return qp;
   }
 
   Future<void> _save(List<Lead> list) async {
-    final prefs = await SharedPreferences.getInstance();
     final raw = list.map((e) => jsonEncode(e.toJson())).toList();
-    await prefs.setStringList(_key, raw);
+    await _storage.setStringList(StorageKeys.leads, raw);
+    await _storage.setInt(StorageKeys.leadsCacheUpdatedAt, DateTime.now().millisecondsSinceEpoch);
   }
 
   Future<List<Lead>> _allLocal() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_key) ?? <String>[];
+    final raw = await _storage.getStringList(StorageKeys.leads) ?? <String>[];
     final list = raw.map((e) => Lead.fromJson(jsonDecode(e) as Map<String, dynamic>)).toList();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
   }
 
-  Future<List<Lead>> fetchAllRemote({String? status, String? search}) async {
-    final token = await AuthService().getToken();
-    final tokenType = (await AuthService().getTokenType()) ?? 'Bearer';
-    if (token == null || token.trim().isEmpty) {
-      throw Exception('Not authenticated');
+  Future<List<Lead>> fetchAllRemote({LeadListQuery query = const LeadListQuery()}) async {
+    final qp = _queryParams(query);
+    final decoded = await _api.getJson('/api/v1/leads', queryParameters: qp.isEmpty ? null : qp);
+    final data = decoded['data'];
+    if (data is! List) {
+      throw Exception('Invalid response');
     }
 
-    final baseUrl = AppConfig.baseUrl.trim();
-    if (baseUrl.isEmpty) {
-      throw Exception('BASE_URL is not configured');
+    final out = <Lead>[];
+    for (final item in data) {
+      if (item is! Map) continue;
+      out.add(Lead.fromApiMap(item.cast<String, dynamic>()));
     }
-
-    final baseUri = Uri.parse(baseUrl).resolve('/api/v1/leads');
-    final qp = <String, String>{};
-    final normalizedStatus = (status ?? '').trim().toLowerCase();
-    final normalizedSearch = (search ?? '').trim();
-    if (normalizedStatus.isNotEmpty) {
-      qp['status'] = normalizedStatus;
-    }
-    if (normalizedSearch.isNotEmpty) {
-      qp['search'] = normalizedSearch;
-    }
-    final uri = baseUri.replace(queryParameters: qp.isEmpty ? null : qp);
-    final client = HttpClient();
-    try {
-      final req = await client.getUrl(uri);
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.authorizationHeader, '$tokenType $token');
-
-      final res = await req.close();
-      final raw = await res.transform(utf8.decoder).join();
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final msg = (decoded['message'] as String?) ?? 'Failed to load leads';
-          throw Exception(msg);
-        } catch (_) {
-          throw Exception('Failed to load leads');
-        }
-      }
-
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final data = decoded['data'];
-      if (data is! List) {
-        throw Exception('Invalid response');
-      }
-
-      final out = <Lead>[];
-      for (final item in data) {
-        if (item is! Map) continue;
-        final m = item.cast<String, dynamic>();
-        out.add(
-          Lead(
-            id: int.tryParse((m['id'] ?? '').toString()),
-            clientCompany: (m['company_name'] as String?) ?? '',
-            companyEmail: (m['company_email'] as String?) ?? '',
-            companyPhone: (m['company_phone'] as String?) ?? '',
-            pocDesignation: (m['poc_designation'] as String?) ?? '',
-            pocPhone: (m['poc_phone'] as String?) ?? '',
-            status: (m['lead_status'] as String?) ?? 'cold',
-            industry: (m['industry'] as String?) ?? '',
-            requirements: (m['requirements'] as String?) ?? '',
-            createdAt: _parseApiDateTime((m['created_at'] as String?) ?? ''),
-          ),
-        );
-      }
-      out.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return out;
-    } finally {
-      client.close(force: true);
-    }
+    out.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    await _save(out);
+    return out;
   }
 
-  Future<Lead> fetchDetails(int leadId) async {
-    final token = await AuthService().getToken();
-    final tokenType = (await AuthService().getTokenType()) ?? 'Bearer';
-    if (token == null || token.trim().isEmpty) {
-      throw Exception('Not authenticated');
+  Future<LeadDetail> fetchDetails(int leadId) async {
+    final decoded = await _api.getJson('/api/v1/leads/$leadId');
+    final data = decoded['data'];
+    if (data is! Map<String, dynamic>) {
+      throw Exception('Invalid response');
     }
-
-    final baseUrl = AppConfig.baseUrl.trim();
-    if (baseUrl.isEmpty) {
-      throw Exception('BASE_URL is not configured');
-    }
-
-    final uri = Uri.parse(baseUrl).resolve('/api/v1/leads/$leadId');
-    final client = HttpClient();
-    try {
-      final req = await client.getUrl(uri);
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.authorizationHeader, '$tokenType $token');
-
-      final res = await req.close();
-      final raw = await res.transform(utf8.decoder).join();
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final msg = (decoded['message'] as String?) ?? 'Failed to load lead details';
-          throw Exception(msg);
-        } catch (_) {
-          throw Exception('Failed to load lead details');
-        }
-      }
-
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final data = decoded['data'] as Map<String, dynamic>?;
-      if (data == null) {
-        throw Exception('Invalid response');
-      }
-
-      return Lead(
-        id: int.tryParse((data['id'] ?? '').toString()) ?? leadId,
-        clientCompany: (data['company_name'] as String?) ?? '',
-        companyEmail: (data['company_email'] as String?) ?? '',
-        companyPhone: (data['company_phone'] as String?) ?? '',
-        pocDesignation: (data['poc_designation'] as String?) ?? '',
-        pocPhone: (data['poc_phone'] as String?) ?? '',
-        status: (data['lead_status'] as String?) ?? 'cold',
-        industry: (data['industry'] as String?) ?? '',
-        requirements: (data['requirements'] as String?) ?? '',
-        createdAt: _parseApiDateTime((data['created_at'] as String?) ?? ''),
-      );
-    } finally {
-      client.close(force: true);
-    }
+    return LeadDetail.fromApiMap(data);
   }
 
-  Future<void> updateRemote({required int leadId, required Lead lead}) async {
-    final token = await AuthService().getToken();
-    final tokenType = (await AuthService().getTokenType()) ?? 'Bearer';
-    if (token == null || token.trim().isEmpty) {
-      throw Exception('Not authenticated');
+  Future<Lead> createRemote(Lead lead) async {
+    final decoded = await _api.postJson('/api/v1/leads', body: lead.toCreatePayload());
+    final data = decoded['data'];
+    if (data is Map<String, dynamic>) {
+      return Lead.fromApiMap(data);
     }
+    return lead;
+  }
 
-    final baseUrl = AppConfig.baseUrl.trim();
-    if (baseUrl.isEmpty) {
-      throw Exception('BASE_URL is not configured');
-    }
-
-    final payload = <String, dynamic>{
-      'company_name': lead.clientCompany,
-      'company_email': lead.companyEmail,
-      'company_phone': lead.companyPhone,
-      'poc_designation': lead.pocDesignation,
-      'poc_phone': lead.pocPhone,
-      'lead_status': lead.status.toLowerCase(),
-      'industry': lead.industry,
-      'requirements': lead.requirements,
-    };
-
-    final uri = Uri.parse(baseUrl).resolve('/api/v1/leads/$leadId');
-    final client = HttpClient();
-    try {
-      final req = await client.putUrl(uri);
-      req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.authorizationHeader, '$tokenType $token');
-      req.add(utf8.encode(jsonEncode(payload)));
-
-      final res = await req.close();
-      final raw = await res.transform(utf8.decoder).join();
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final msg = (decoded['message'] as String?) ?? 'Failed to update lead';
-          throw Exception(msg);
-        } catch (_) {
-          throw Exception('Failed to update lead');
-        }
-      }
-    } finally {
-      client.close(force: true);
-    }
+  Future<Lead> updateRemote({required int leadId, required Lead lead}) async {
+    await _api.postJson('/api/v1/leads/$leadId/update', body: lead.toUpdatePayload());
+    return fetchDetails(leadId).then((d) => d.lead);
   }
 
   Future<void> deleteRemote(int leadId) async {
-    final token = await AuthService().getToken();
-    final tokenType = (await AuthService().getTokenType()) ?? 'Bearer';
-    if (token == null || token.trim().isEmpty) {
-      throw Exception('Not authenticated');
-    }
-
-    final baseUrl = AppConfig.baseUrl.trim();
-    if (baseUrl.isEmpty) {
-      throw Exception('BASE_URL is not configured');
-    }
-
-    final uri = Uri.parse(baseUrl).resolve('/api/v1/leads/$leadId');
-    final client = HttpClient();
-    try {
-      final req = await client.deleteUrl(uri);
-      req.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      req.headers.set(HttpHeaders.authorizationHeader, '$tokenType $token');
-
-      final res = await req.close();
-      final raw = await res.transform(utf8.decoder).join();
-
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        try {
-          final decoded = jsonDecode(raw) as Map<String, dynamic>;
-          final msg = (decoded['message'] as String?) ?? 'Failed to delete lead';
-          throw Exception(msg);
-        } catch (_) {
-          throw Exception('Failed to delete lead');
-        }
-      }
-    } finally {
-      client.close(force: true);
-    }
+    await _api.postJson('/api/v1/leads/$leadId/delete');
   }
 
-  Future<List<Lead>> all({String? status, String? search}) async {
+  Future<List<LeadComment>> fetchComments(int leadId) async {
+    final decoded = await _api.getJson('/api/v1/leads/$leadId/comments');
+    return _parseList(decoded['data'], LeadComment.fromJson);
+  }
+
+  Future<LeadComment> addComment({required int leadId, required String comment, String type = 'remark'}) async {
+    final decoded = await _api.postJson('/api/v1/leads/$leadId/comments', body: {'comment': comment, 'type': type});
+    final data = decoded['data'];
+    if (data is Map<String, dynamic>) {
+      return LeadComment.fromJson(data);
+    }
+    throw Exception('Invalid response');
+  }
+
+  Future<void> changeStatus({required int leadId, required String leadStatus, String? remark}) async {
+    await _api.postJson(
+      '/api/v1/leads/$leadId/status',
+      body: {
+        'lead_status': leadStatus.toLowerCase(),
+        if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim(),
+      },
+    );
+  }
+
+  Future<void> changeStage({required int leadId, required String stage, String? remark}) async {
+    await _api.postJson(
+      '/api/v1/leads/$leadId/stage',
+      body: {'stage': stage.toLowerCase(), if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim()},
+    );
+  }
+
+  Future<List<LeadDocument>> fetchDocuments(int leadId) async {
+    final decoded = await _api.getJson('/api/v1/leads/$leadId/documents');
+    return _parseList(decoded['data'], LeadDocument.fromJson);
+  }
+
+  Future<void> uploadDocument({
+    required int leadId,
+    required String filePath,
+    required String filename,
+    required String title,
+  }) async {
+    await _api.postMultipartFile(
+      '/api/v1/leads/$leadId/documents',
+      fileField: 'file',
+      filePath: filePath,
+      filename: filename,
+      fields: {'title': title},
+      maxFileBytes: 10 * 1024 * 1024,
+    );
+  }
+
+  Future<void> deleteDocument({required int leadId, required int documentId}) async {
+    await _api.postJson('/api/v1/leads/$leadId/documents/$documentId/delete');
+  }
+
+  Future<List<LeadActionItem>> fetchActions(int leadId) async {
+    final decoded = await _api.getJson('/api/v1/leads/$leadId/actions');
+    return _parseList(decoded['data'], LeadActionItem.fromJson);
+  }
+
+  Future<void> addAction({
+    required int leadId,
+    required String actionType,
+    required String description,
+    required String actionDate,
+    required String actionTime,
+  }) async {
+    await _api.postJson(
+      '/api/v1/leads/$leadId/actions',
+      body: {
+        'action_type': actionType,
+        'description': description,
+        'action_date': actionDate,
+        'action_time': actionTime,
+      },
+    );
+  }
+
+  Future<void> completeAction({required int leadId, required int actionId, required String mom, String? remark}) async {
+    await _api.postJson(
+      '/api/v1/leads/$leadId/actions/$actionId/complete',
+      body: {'mom': mom, if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim()},
+    );
+  }
+
+  Future<void> scheduleMeeting({
+    required int leadId,
+    required String title,
+    required String date,
+    required String time,
+    required String endTime,
+    required String location,
+    required int organizerId,
+  }) async {
+    await _api.postJson(
+      '/api/v1/leads/$leadId/meetings',
+      body: {
+        'title': title,
+        'date': date,
+        'time': time,
+        'end_time': endTime,
+        'location': location,
+        'organizer_id': organizerId,
+      },
+    );
+  }
+
+  List<T> _parseList<T>(Object? data, T Function(Map<String, dynamic>) fromJson) {
+    if (data is! List) return <T>[];
+    final out = <T>[];
+    for (final item in data) {
+      if (item is Map<String, dynamic>) {
+        out.add(fromJson(item));
+      } else if (item is Map) {
+        out.add(fromJson(item.cast<String, dynamic>()));
+      }
+    }
+    return out;
+  }
+
+  Future<DateTime?> readLocalUpdatedAt() => CacheStamp.read(_storage, StorageKeys.leadsCacheUpdatedAt);
+
+  Future<List<Lead>> readLocal() => _allLocal();
+
+  List<Lead> filterLocalList(List<Lead> list, {LeadListQuery query = const LeadListQuery()}) {
+    final normalizedStatus = (query.status ?? '').trim().toLowerCase();
+    final normalizedStage = (query.stage ?? '').trim().toLowerCase();
+    final normalizedSource = (query.source ?? '').trim().toLowerCase();
+    final normalizedSearch = (query.search ?? '').trim().toLowerCase();
+    return list.where((l) {
+      if (normalizedStatus.isNotEmpty && l.leadStatus.toLowerCase() != normalizedStatus) {
+        return false;
+      }
+      if (normalizedStage.isNotEmpty && (l.stage ?? '').toLowerCase() != normalizedStage) {
+        return false;
+      }
+      if (normalizedSource.isNotEmpty && (l.source ?? '').toLowerCase() != normalizedSource) {
+        return false;
+      }
+      if (normalizedSearch.isEmpty) return true;
+      return l.companyName.toLowerCase().contains(normalizedSearch) ||
+          l.companyEmail.toLowerCase().contains(normalizedSearch) ||
+          l.companyPhone.toLowerCase().contains(normalizedSearch) ||
+          l.industry.toLowerCase().contains(normalizedSearch) ||
+          l.leadStatus.toLowerCase().contains(normalizedSearch) ||
+          (l.leadCode ?? '').toLowerCase().contains(normalizedSearch);
+    }).toList();
+  }
+
+  Future<List<Lead>> all({LeadListQuery query = const LeadListQuery()}) async {
     try {
-      return await fetchAllRemote(status: status, search: search);
+      return await fetchAllRemote(query: query);
     } catch (_) {
-      final list = await _allLocal();
-      final normalizedStatus = (status ?? '').trim().toLowerCase();
-      final normalizedSearch = (search ?? '').trim().toLowerCase();
-      return list.where((l) {
-        if (normalizedStatus.isNotEmpty && l.status.toLowerCase() != normalizedStatus) {
-          return false;
-        }
-        if (normalizedSearch.isEmpty) return true;
-        return l.clientCompany.toLowerCase().contains(normalizedSearch) ||
-            l.companyEmail.toLowerCase().contains(normalizedSearch) ||
-            l.companyPhone.toLowerCase().contains(normalizedSearch) ||
-            l.industry.toLowerCase().contains(normalizedSearch) ||
-            l.status.toLowerCase().contains(normalizedSearch);
-      }).toList();
+      return filterLocalList(await _allLocal(), query: query);
     }
   }
 
   Future<void> add(Lead lead) async {
-    try {
-      await createRemote(lead);
-    } catch (_) {
-      final list = await _allLocal();
-      list.insert(0, lead);
-      await _save(list);
-    }
+    await createRemote(lead);
   }
 
   Future<void> updateAt(int index, Lead lead) async {

@@ -1,125 +1,40 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/utils/app_date_format.dart';
+import 'package:attendance/core/theme/app_colors.dart';
+import 'package:attendance/core/theme/theme_context.dart';
+import 'package:attendance/core/widgets/app_list_tile.dart';
+import 'package:attendance/core/widgets/app_status_badge.dart';
 import 'package:attendance/features/leave/data/leave_service.dart';
-
-class LeaveBalanceListTile extends StatelessWidget {
-  final int total;
-  final int used;
-  final int remaining;
-  const LeaveBalanceListTile({
-    super.key,
-    required this.total,
-    required this.used,
-    required this.remaining,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppTheme.primaryBlue.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(Icons.beach_access, color: AppTheme.primaryBlue),
-        ),
-        title: const Text(
-          'Casual Leave Balance',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Row(
-          children: [
-            _chip('Total', total.toString(), AppTheme.primaryBlue),
-            const SizedBox(width: 8),
-            _chip('Used', used.toString(), AppTheme.accentOrange),
-            const SizedBox(width: 8),
-            _chip('Remaining', remaining.toString(), AppTheme.accentGreen),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static Widget _chip(String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$label: ',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class LeaveCardCompact extends StatelessWidget {
   final LeaveRequest leave;
+  final VoidCallback? onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  const LeaveCardCompact({
-    super.key,
-    required this.leave,
-    required this.onEdit,
-    required this.onDelete,
-  });
+  const LeaveCardCompact({super.key, required this.leave, this.onTap, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    String _fmt(DateTime d) {
-      final s = DateFormat('EEE, MMM d, yyyy').format(d);
-      // Ensure September shows as 'Sept' instead of 'Sep'
-      return s.contains('Sep ') ? s.replaceFirst('Sep ', 'Sept ') : s;
-    }
-    final datePrimary = _fmt(leave.startDate);
+    final datePrimary = AppDateFormat.date(leave.startDate);
     final statusVal = (leave.status).toLowerCase();
 
-    Color statusColor;
+    Color statusFg;
+    Color statusBg;
     String statusLabel;
     switch (statusVal) {
       case 'approved':
-        statusColor = AppTheme.accentGreen;
+        statusFg = AppColors.success;
+        statusBg = AppColors.successSoft;
         statusLabel = 'Approved';
         break;
       case 'rejected':
-        statusColor = AppTheme.accentRed;
+        statusFg = AppColors.error;
+        statusBg = AppColors.errorSoft;
         statusLabel = 'Rejected';
         break;
       default:
-        statusColor = AppTheme.accentOrange;
+        statusFg = AppColors.warning;
+        statusBg = AppColors.warningSoft;
         statusLabel = 'Awaiting';
     }
 
@@ -132,15 +47,12 @@ class LeaveCardCompact extends StatelessWidget {
         titleLabel = 'Sick Leave';
         break;
       default:
-        titleLabel =
-            '${leave.type[0].toUpperCase()}${leave.type.substring(1)} Leave';
+        titleLabel = '${leave.type[0].toUpperCase()}${leave.type.substring(1)} Leave';
     }
 
     final Color stripeColor = leave.type == 'sick'
-        ? AppTheme.accentRed
-        : (leave.type == 'casual'
-              ? AppTheme.primaryBlue
-              : AppTheme.accentPurple);
+        ? AppColors.error
+        : (leave.type == 'casual' ? AppColors.primary : AppColors.info);
 
     int currentStep;
     switch (statusVal) {
@@ -154,111 +66,15 @@ class LeaveCardCompact extends StatelessWidget {
         currentStep = 1; // created
     }
 
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      elevation: 1,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        constraints: const BoxConstraints(minHeight: 90),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Stack(
-            children: [
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                child: Container(width: 6, color: stripeColor),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 14, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${titleLabel} Application',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade500,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                datePrimary,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.grey.shade900,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                leave.type == 'casual' ? 'Casual' : (leave.type == 'sick' ? 'Sick' : titleLabel),
-                                style: TextStyle(
-                                  fontSize: 12  ,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.accentOrange,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: statusColor.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: statusColor.withOpacity(0.25)),
-                              ),
-                              child: Text(
-                                statusLabel,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: statusColor,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: Icon(Icons.chevron_right, color: Colors.grey),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _StepperRow(currentStep: currentStep),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return AppListTile(
+      accentColor: stripeColor,
+      overline: '$titleLabel application',
+      title: datePrimary,
+      subtitle: leave.type == 'casual' ? 'Casual' : (leave.type == 'sick' ? 'Sick' : titleLabel),
+      highlightSubtitle: true,
+      trailing: AppStatusBadge(label: statusLabel, backgroundColor: statusBg, foregroundColor: statusFg),
+      footer: _StepperRow(currentStep: currentStep),
+      onTap: onTap,
     );
   }
 }
@@ -268,7 +84,7 @@ class _StepperRow extends StatelessWidget {
   const _StepperRow({required this.currentStep});
 
   Color _dotColor(BuildContext context, bool active) {
-    return active ? const Color(0xFF7C3AED) : Colors.grey.shade400; // purple
+    return active ? AppColors.primary : Theme.of(context).colorScheme.outline;
   }
 
   Widget _step(BuildContext context, String label, int index, int current) {
@@ -287,19 +103,11 @@ class _StepperRow extends StatelessWidget {
           ),
           alignment: Alignment.center,
           child: index == 1 && active
-            ? Icon(
-                Icons.check,
-                size: 12,
-                color: Colors.white,
-              )
-            : Text(
-                index.toString(),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: active ? Colors.white : color,
+              ? Icon(Icons.check, size: 12, color: Colors.white)
+              : Text(
+                  index.toString(),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: active ? Colors.white : color),
                 ),
-              ),
         ),
         const SizedBox(width: 8),
         Text(
@@ -307,7 +115,7 @@ class _StepperRow extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
-            color: active ? Colors.grey.shade800 : Colors.grey.shade600,
+            color: active ? context.textPrimary : context.textSecondary,
           ),
         ),
       ],
@@ -322,7 +130,7 @@ class _StepperRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: context.subtleBorder),
       ),
       child: Row(
         children: [
@@ -330,14 +138,14 @@ class _StepperRow extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Container(height: 2, color: Colors.grey.shade300),
+              child: Container(height: 2, color: context.subtleBorder),
             ),
           ),
           _step(context, 'Review', 2, currentStep),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Container(height: 2, color: Colors.grey.shade300),
+              child: Container(height: 2, color: context.subtleBorder),
             ),
           ),
           _step(context, 'Approved', 3, currentStep),
@@ -390,24 +198,16 @@ class DonutStat extends StatelessWidget {
                     painter: _DonutPainter(
                       progress: animatedProgress,
                       color: fillColor,
-                      trackColor: Colors.grey.shade300,
+                      trackColor: Theme.of(context).colorScheme.outline.withValues(alpha: 0.35),
                       strokeWidth: 10,
                     ),
                   ),
-                  display == '1' 
-                    ? Icon(
-                        Icons.check,
-                        size: 24,
-                        color: Colors.grey.shade800,
-                      )
-                    : Text(
-                        display,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.grey.shade800,
+                  display == '1'
+                      ? Icon(Icons.check, size: 24, color: context.textPrimary)
+                      : Text(
+                          display,
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: context.textPrimary),
                         ),
-                      ),
                 ],
               ),
             );
@@ -416,20 +216,12 @@ class DonutStat extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           title,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: Colors.grey.shade800,
-          ),
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: context.textPrimary),
         ),
         if (subtitle != null)
           Text(
             subtitle!,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: context.textSecondary),
           ),
       ],
     );
@@ -442,12 +234,7 @@ class _DonutPainter extends CustomPainter {
   final Color trackColor;
   final double strokeWidth;
 
-  _DonutPainter({
-    required this.progress,
-    required this.color,
-    required this.trackColor,
-    required this.strokeWidth,
-  });
+  _DonutPainter({required this.progress, required this.color, required this.trackColor, required this.strokeWidth});
 
   @override
   void paint(Canvas canvas, Size size) {

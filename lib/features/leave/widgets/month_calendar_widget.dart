@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:attendance/core/theme/app_theme.dart';
+import 'package:attendance/core/theme/theme_context.dart';
 
 class MonthCalendarWidget extends StatefulWidget {
   final DateTime? selectedDate;
@@ -89,18 +90,13 @@ class _MonthCalendarWidgetState extends State<MonthCalendarWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = context.textPrimary;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.surfaceColor,
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: context.subtleBorder),
       ),
       child: TableCalendar<dynamic>(
         firstDay: DateTime.utc(2020, 1, 1),
@@ -111,9 +107,9 @@ class _MonthCalendarWidgetState extends State<MonthCalendarWidget> {
         selectedDayPredicate: (day) {
           if (widget.isRangeSelection) {
             if (_selectedRange == null) return false;
-            return isSameDay(day, _selectedRange!.start) || 
-                   isSameDay(day, _selectedRange!.end) ||
-                   (day.isAfter(_selectedRange!.start) && day.isBefore(_selectedRange!.end));
+            return isSameDay(day, _selectedRange!.start) ||
+                isSameDay(day, _selectedRange!.end) ||
+                (day.isAfter(_selectedRange!.start) && day.isBefore(_selectedRange!.end));
           } else {
             return isSameDay(_selectedDay, day);
           }
@@ -122,19 +118,21 @@ class _MonthCalendarWidgetState extends State<MonthCalendarWidget> {
         rangeStartDay: widget.isRangeSelection ? _selectedRange?.start : null,
         rangeEndDay: widget.isRangeSelection ? _selectedRange?.end : null,
         onDaySelected: widget.isRangeSelection ? null : _onDaySelected,
-        onRangeSelected: widget.isRangeSelection ? (start, end, focusedDay) {
-          setState(() {
-            if (start != null && end != null) {
-              _selectedRange = DateTimeRange(start: start, end: end);
-            } else if (start != null) {
-              _selectedRange = DateTimeRange(start: start, end: start);
-            } else {
-              _selectedRange = null;
-            }
-            _focusedDay = focusedDay;
-          });
-          widget.onRangeSelected?.call(_selectedRange);
-        } : null,
+        onRangeSelected: widget.isRangeSelection
+            ? (start, end, focusedDay) {
+                setState(() {
+                  if (start != null && end != null) {
+                    _selectedRange = DateTimeRange(start: start, end: end);
+                  } else if (start != null) {
+                    _selectedRange = DateTimeRange(start: start, end: start);
+                  } else {
+                    _selectedRange = null;
+                  }
+                  _focusedDay = focusedDay;
+                });
+                widget.onRangeSelected?.call(_selectedRange);
+              }
+            : null,
         onPageChanged: (focusedDay) {
           setState(() {
             _focusedDay = focusedDay;
@@ -144,62 +142,28 @@ class _MonthCalendarWidgetState extends State<MonthCalendarWidget> {
         calendarStyle: CalendarStyle(
           outsideDaysVisible: false,
           weekendTextStyle: TextStyle(color: AppTheme.primaryBlue.withOpacity(0.7)),
-          defaultTextStyle: const TextStyle(color: Colors.black87),
+          defaultTextStyle: TextStyle(color: onSurface),
           selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           todayTextStyle: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.bold),
-          selectedDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue,
-            shape: BoxShape.circle,
-          ),
-          todayDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue.withOpacity(0.3),
-            shape: BoxShape.circle,
-          ),
+          selectedDecoration: BoxDecoration(color: AppTheme.primaryBlue, shape: BoxShape.circle),
+          todayDecoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.3), shape: BoxShape.circle),
           rangeHighlightColor: AppTheme.primaryBlue.withOpacity(0.2),
-          rangeStartDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue,
-            shape: BoxShape.circle,
-          ),
-          rangeEndDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue,
-            shape: BoxShape.circle,
-          ),
-          withinRangeDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
+          rangeStartDecoration: BoxDecoration(color: AppTheme.primaryBlue, shape: BoxShape.circle),
+          rangeEndDecoration: BoxDecoration(color: AppTheme.primaryBlue, shape: BoxShape.circle),
+          withinRangeDecoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
           markersMaxCount: 1,
-          markerDecoration: BoxDecoration(
-            color: AppTheme.primaryBlue,
-            shape: BoxShape.circle,
-          ),
+          markerDecoration: BoxDecoration(color: AppTheme.primaryBlue, shape: BoxShape.circle),
         ),
         headerStyle: HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          titleTextStyle: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-          leftChevronIcon: Icon(
-            Icons.chevron_left,
-            color: AppTheme.primaryBlue,
-          ),
-          rightChevronIcon: Icon(
-            Icons.chevron_right,
-            color: AppTheme.primaryBlue,
-          ),
+          titleTextStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: onSurface),
+          leftChevronIcon: Icon(Icons.chevron_left, color: AppTheme.primaryBlue),
+          rightChevronIcon: Icon(Icons.chevron_right, color: AppTheme.primaryBlue),
         ),
         daysOfWeekStyle: DaysOfWeekStyle(
-          weekdayStyle: TextStyle(
-            color: AppTheme.primaryBlue,
-            fontWeight: FontWeight.w600,
-          ),
-          weekendStyle: TextStyle(
-            color: AppTheme.primaryBlue.withOpacity(0.7),
-            fontWeight: FontWeight.w600,
-          ),
+          weekdayStyle: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w600),
+          weekendStyle: TextStyle(color: AppTheme.primaryBlue.withOpacity(0.7), fontWeight: FontWeight.w600),
         ),
       ),
     );
